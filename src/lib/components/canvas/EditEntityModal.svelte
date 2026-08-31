@@ -1,0 +1,706 @@
+<!-- File: src/lib/components/canvas/EditEntityModal.svelte -->
+<script lang="ts">
+  import { campaignStore } from '../../stores/campaignStore.svelte';
+  import type { EntityType, EncounterTable, AttachedNote, DiceType } from '../../types';
+  import { ICON_OPTIONS, getEntityIcon } from '../../utils/icons';
+  import { audioEngine } from '../../services/audio/audioEngine.svelte';
+  import {
+    X,
+    Sliders,
+    Trash2,
+    Plus,
+    Tag,
+    Lock,
+    Unlock,
+    Dice6,
+    FileText,
+    Dices,
+    User,
+    Shield,
+    MapPin,
+    Skull,
+    Search,
+    Music,
+    Check,
+    Palette,
+    Link2,
+    Sparkles,
+  } from 'lucide-svelte';
+
+  const node = $derived(campaignStore.editingNode);
+
+  // Tab State
+  let activeTab = $state<'general' | 'tables' | 'notes' | 'connections'>('general');
+
+  // General tab states
+  let title = $state('');
+  let subtitle = $state('');
+  let description = $state('');
+  let type = $state<EntityType>('npc');
+  let isSecret = $state(false);
+  let tags = $state<string[]>([]);
+  let tagInput = $state('');
+  let color = $state('#d4a359');
+  let selectedIcon = $state('user');
+  let audioPlaylistId = $state('');
+
+  // Encounter Tables State
+  let tables = $state<EncounterTable[]>([]);
+  let activeTableIndex = $state(0);
+
+  // Sub-notes State
+  let attachedNotes = $state<AttachedNote[]>([]);
+  let newNoteTitle = $state('');
+  let newNoteContent = $state('');
+
+  // Color preset palette
+  const COLOR_PALETTE = [
+    { name: 'Ouro / Âmbar', hex: '#d4a359' },
+    { name: 'Púrpura / Arcano', hex: '#a855f7' },
+    { name: 'Azul Celeste / Local', hex: '#38bdf8' },
+    { name: 'Carmesim / Sangue', hex: '#f87171' },
+    { name: 'Esmeralda / Natureza', hex: '#10b981' },
+    { name: 'Laranja / Chama', hex: '#f97316' },
+    { name: 'Índigo / Mistério', hex: '#6366f1' },
+    { name: 'Cinza / Sombra', hex: '#71717a' },
+  ];
+
+  // Category types list
+  const typesList: { id: EntityType; label: string; icon: any; color: string; defaultColor: string; defaultIcon: string }[] = [
+    { id: 'npc', label: 'NPC / Personagem', icon: User, color: 'text-amber-400 border-amber-500/40 bg-amber-500/10', defaultColor: '#d4a359', defaultIcon: 'user' },
+    { id: 'faction', label: 'Facção / Culto', icon: Shield, color: 'text-purple-400 border-purple-500/40 bg-purple-500/10', defaultColor: '#a855f7', defaultIcon: 'shield' },
+    { id: 'location', label: 'Local / Região', icon: MapPin, color: 'text-sky-400 border-sky-500/40 bg-sky-500/10', defaultColor: '#38bdf8', defaultIcon: 'map-pin' },
+    { id: 'secret', label: 'Segredo Oculto', icon: Skull, color: 'text-rose-400 border-rose-500/40 bg-rose-500/10', defaultColor: '#f87171', defaultIcon: 'skull' },
+    { id: 'clue', label: 'Pista / Evidência', icon: Search, color: 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10', defaultColor: '#10b981', defaultIcon: 'search' },
+    { id: 'note', label: 'Nota / Documento', icon: FileText, color: 'text-zinc-300 border-zinc-500/40 bg-zinc-800/30', defaultColor: '#71717a', defaultIcon: 'file-text' },
+    { id: 'table', label: 'Tabela de Dados', icon: Dices, color: 'text-amber-300 border-amber-500/40 bg-amber-500/10', defaultColor: '#d4a359', defaultIcon: 'dices' },
+  ];
+
+  const suggestedTags = ['Aliado', 'Inimigo', 'Suspeito', 'Mágico', 'Perigoso', 'Crucial', 'Investigado'];
+
+  // Sync state whenever editingNode changes
+  $effect(() => {
+    if (node) {
+      title = node.title || '';
+      subtitle = node.subtitle || '';
+      description = node.description || '';
+      type = (node.type || node.category || 'npc') as EntityType;
+      isSecret = Boolean(node.isSecret || node.type === 'secret');
+      tags = Array.isArray(node.tags) ? [...node.tags] : [];
+      color = node.color || node.colorTheme || '#d4a359';
+      selectedIcon = node.icon || 'user';
+      tables = Array.isArray(node.tables) ? JSON.parse(JSON.stringify(node.tables)) : [];
+      attachedNotes = Array.isArray(node.notes) ? JSON.parse(JSON.stringify(node.notes)) : [];
+      audioPlaylistId = node.audioPlaylistId || '';
+      activeTab = 'general';
+    }
+  });
+
+  function handleTypeSelect(item: typeof typesList[0]) {
+    type = item.id;
+    if (!subtitle || subtitle === 'NPC' || subtitle === 'FACÇÃO' || subtitle === 'LOCAL' || subtitle === 'SEGREDO' || subtitle === 'PISTA' || subtitle === 'NOTA' || subtitle === 'TABELA') {
+      subtitle = item.id.toUpperCase();
+    }
+    if (!node?.color) {
+      color = item.defaultColor;
+    }
+    if (!node?.icon) {
+      selectedIcon = item.defaultIcon;
+    }
+    if (item.id === 'secret') {
+      isSecret = true;
+    }
+  }
+
+  function addTag() {
+    const trimmed = tagInput.trim();
+    if (trimmed && !tags.includes(trimmed)) {
+      tags = [...tags, trimmed];
+      tagInput = '';
+    }
+  }
+
+  function removeTag(tagToRemove: string) {
+    tags = tags.filter((t) => t !== tagToRemove);
+  }
+
+  function addSuggestedTag(tag: string) {
+    if (!tags.includes(tag)) {
+      tags = [...tags, tag];
+    }
+  }
+
+  // --- Encounter Tables Functions ---
+  function addNewTable() {
+    const newTable: EncounterTable = {
+      id: `table-${Date.now()}`,
+      title: `Tabela de Encontros ${tables.length + 1}`,
+      diceType: 'd6',
+      description: 'Eventos ou encontros aleatórios neste local.',
+      rows: [
+        { id: `r-1`, range: '1-2', title: 'Patrulha de Guardas', description: '2 guardas vigilantes aproximam-se.' },
+        { id: `r-2`, range: '3-4', title: 'Comerciante Suspeito', description: 'Oferece itens raros a preços inflacionados.' },
+        { id: `r-3`, range: '5', title: 'Ruído Estranho', description: 'Sons misteriosos chamam a atenção da equipa.' },
+        { id: `r-4`, range: '6', title: 'Pista Oculta', description: 'Encontram um rastro ou símbolo desenhado no chão.' },
+      ],
+    };
+    tables = [...tables, newTable];
+    activeTableIndex = tables.length - 1;
+  }
+
+  function removeTable(index: number) {
+    tables = tables.filter((_, i) => i !== index);
+    if (activeTableIndex >= tables.length) {
+      activeTableIndex = Math.max(0, tables.length - 1);
+    }
+  }
+
+  function addTableRow(table: EncounterTable) {
+    const newRow = {
+      id: `row-${Date.now()}`,
+      range: `${table.rows.length + 1}`,
+      title: 'Novo Encontro / Resultado',
+      description: '',
+    };
+    table.rows = [...table.rows, newRow];
+    tables = [...tables];
+  }
+
+  function removeTableRow(table: EncounterTable, rowId: string) {
+    table.rows = table.rows.filter((r) => r.id !== rowId);
+    tables = [...tables];
+  }
+
+  function rollDice(table: EncounterTable) {
+    const sides = parseInt(table.diceType.replace('d', ''), 10) || 6;
+    const roll = Math.floor(Math.random() * sides) + 1;
+
+    let matchedRowId: string | undefined;
+    for (const row of table.rows) {
+      if (row.range.includes('-')) {
+        const [min, max] = row.range.split('-').map((n) => parseInt(n.trim(), 10));
+        if (!isNaN(min) && !isNaN(max) && roll >= min && roll <= max) {
+          matchedRowId = row.id;
+          break;
+        }
+      } else {
+        const val = parseInt(row.range.trim(), 10);
+        if (!isNaN(val) && val === roll) {
+          matchedRowId = row.id;
+          break;
+        }
+      }
+    }
+
+    table.lastRoll = {
+      diceValue: roll,
+      matchedRowId,
+      rolledAt: Date.now(),
+    };
+    tables = [...tables];
+  }
+
+  // --- Attached Sub-notes Functions ---
+  function addAttachedNote() {
+    if (!newNoteTitle.trim()) return;
+    const note: AttachedNote = {
+      id: `note-${Date.now()}`,
+      title: newNoteTitle.trim(),
+      content: newNoteContent.trim(),
+      createdAt: Date.now(),
+    };
+    attachedNotes = [note, ...attachedNotes];
+    newNoteTitle = '';
+    newNoteContent = '';
+  }
+
+  function removeAttachedNote(noteId: string) {
+    attachedNotes = attachedNotes.filter((n) => n.id !== noteId);
+  }
+
+  function handleSave() {
+    if (node) {
+      campaignStore.updateNodeData(node.id, {
+        title: title.trim() || 'Sem Título',
+        subtitle: subtitle.trim() || type.toUpperCase(),
+        description: description.trim(),
+        type,
+        category: type,
+        isSecret: isSecret || type === 'secret',
+        tags,
+        color,
+        colorTheme: color,
+        icon: selectedIcon,
+        tables,
+        notes: attachedNotes,
+        audioPlaylistId: audioPlaylistId || undefined,
+      });
+      campaignStore.closeNodeEditor();
+    }
+  }
+
+  function handleDelete() {
+    if (node && confirm(`Tens a certeza que desejas eliminar "${node.title}"?`)) {
+      campaignStore.deleteNode(node.id);
+    }
+  }
+</script>
+
+{#if node}
+  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div class="w-full max-w-2xl max-h-[90vh] bg-zinc-900 border border-zinc-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+            <Sliders class="w-4 h-4" />
+          </div>
+          <div>
+            <h2 class="text-sm font-bold text-zinc-100">Editar Entidade / Contexto</h2>
+            <p class="text-[11px] text-zinc-400">Gerencia detalhes, tabelas de encontros e notas vinculadas</p>
+          </div>
+        </div>
+        <button
+          onclick={() => campaignStore.closeNodeEditor()}
+          class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 flex items-center justify-center transition cursor-pointer"
+        >
+          <X class="w-4 h-4" />
+        </button>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="flex items-center gap-2 px-6 pt-3 border-b border-zinc-800 bg-zinc-950/50 text-xs">
+        <button
+          onclick={() => (activeTab = 'general')}
+          class="px-3.5 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 {activeTab === 'general'
+            ? 'border-amber-400 text-amber-300 bg-zinc-900'
+            : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
+        >
+          <Sliders class="w-3.5 h-3.5" />
+          <span>Geral</span>
+        </button>
+
+        <button
+          onclick={() => (activeTab = 'tables')}
+          class="px-3.5 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 {activeTab === 'tables'
+            ? 'border-amber-400 text-amber-300 bg-zinc-900'
+            : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
+        >
+          <Dices class="w-3.5 h-3.5" />
+          <span>Tabelas de Encontros ({tables.length})</span>
+        </button>
+
+        <button
+          onclick={() => (activeTab = 'notes')}
+          class="px-3.5 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 {activeTab === 'notes'
+            ? 'border-amber-400 text-amber-300 bg-zinc-900'
+            : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
+        >
+          <FileText class="w-3.5 h-3.5" />
+          <span>Sub-Notas & Contexto ({attachedNotes.length})</span>
+        </button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="p-6 overflow-y-auto flex-1 space-y-5 text-xs text-zinc-200">
+        <!-- TAB 1: GERAL -->
+        {#if activeTab === 'general'}
+          <!-- Type Selector -->
+          <div>
+            <span class="block text-zinc-400 font-medium mb-1.5">Categoria da Entidade</span>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {#each typesList as item}
+                {@const Icon = item.icon}
+                <button
+                  type="button"
+                  onclick={() => handleTypeSelect(item)}
+                  class="p-2.5 rounded-xl border text-left flex items-center gap-2 text-xs font-semibold transition cursor-pointer {type ===
+                  item.id
+                    ? `${item.color} ring-1 ring-amber-500/50 shadow-xs`
+                    : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700'}"
+                >
+                  <Icon class="w-3.5 h-3.5 flex-shrink-0" />
+                  <span class="truncate">{item.label}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Title & Subtitle -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="col-span-2">
+              <label for="entity-edit-title" class="block font-medium text-zinc-300 mb-1">Título / Nome *</label>
+              <input
+                id="entity-edit-title"
+                type="text"
+                bind:value={title}
+                class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60"
+              />
+            </div>
+            <div>
+              <label for="entity-edit-subtitle" class="block font-medium text-zinc-300 mb-1">Rótulo / Papel</label>
+              <input
+                id="entity-edit-subtitle"
+                type="text"
+                bind:value={subtitle}
+                placeholder="Ex: Suspeito, Taverna"
+                class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60"
+              />
+            </div>
+          </div>
+
+          <!-- Description -->
+          <div>
+            <label for="entity-edit-desc" class="block font-medium text-zinc-300 mb-1">Descrição / Informações Principais</label>
+            <textarea
+              id="entity-edit-desc"
+              rows="4"
+              bind:value={description}
+              placeholder="O que os jogadores ou o mestre sabem sobre esta entidade..."
+              class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-none leading-relaxed"
+            ></textarea>
+          </div>
+
+          <!-- Tags & Secret Toggle -->
+          <div class="grid grid-cols-2 gap-3 items-center">
+            <div>
+              <label for="entity-tag-input" class="block font-medium text-zinc-300 mb-1">Tags / Palavras-chave</label>
+              <div class="flex items-center gap-1.5">
+                <input
+                  id="entity-tag-input"
+                  type="text"
+                  placeholder="Adicionar tag..."
+                  bind:value={tagInput}
+                  onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                  class="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                />
+                <button
+                  type="button"
+                  onclick={addTag}
+                  class="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-200"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {#if tags.length > 0}
+                <div class="flex flex-wrap gap-1 mt-2">
+                  {#each tags as t}
+                    <span class="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] flex items-center gap-1">
+                      <span>{t}</span>
+                      <button onclick={() => removeTag(t)} class="text-zinc-500 hover:text-rose-400">×</button>
+                    </span>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Secret Mode -->
+            <div class="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800 flex items-center justify-between">
+              <div>
+                <div class="font-semibold text-xs text-zinc-200 flex items-center gap-1.5">
+                  <Lock class="w-3 h-3 text-rose-400" />
+                  <span>Segredo Oculto</span>
+                </div>
+                <div class="text-[10px] text-zinc-500">Apenas o Mestre tem conhecimento</div>
+              </div>
+              <input
+                type="checkbox"
+                bind:checked={isSecret}
+                class="w-4 h-4 rounded bg-zinc-900 border-zinc-700 text-rose-500 focus:ring-rose-500/30 accent-rose-500 cursor-pointer"
+              />
+            </div>
+
+            <!-- Linked Audio / Soundtrack Playlist -->
+            <div class="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="font-semibold text-xs text-zinc-200 flex items-center gap-1.5">
+                  <Music class="w-3 h-3 text-amber-400" />
+                  <span>Trilha Sonora / Playlist Vinculada</span>
+                </div>
+                {#if audioPlaylistId}
+                  <button
+                    type="button"
+                    onclick={() => (audioPlaylistId = '')}
+                    class="text-[10px] text-zinc-500 hover:text-rose-400 cursor-pointer"
+                  >
+                    Limpar
+                  </button>
+                {/if}
+              </div>
+              <select
+                bind:value={audioPlaylistId}
+                class="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60"
+              >
+                <option value="">Sem playlist vinculada (usa ambiência contextual)</option>
+                {#each audioEngine.playlists as pl}
+                  <option value={pl.id}>🎵 {pl.name} ({pl.tracks.length} faixas)</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+
+        <!-- TAB 2: TABELAS DE ENCONTROS (ROLLABLE TABLES) -->
+        {:else if activeTab === 'tables'}
+          <div class="space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-xs font-bold text-zinc-100">Tabelas de Encontros & Eventos Aleatórios</h3>
+                <p class="text-[11px] text-zinc-400">Rola dados interativos durante a sessão para gerar acontecimentos</p>
+              </div>
+              <button
+                type="button"
+                onclick={addNewTable}
+                class="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Plus class="w-3.5 h-3.5" />
+                <span>Nova Tabela</span>
+              </button>
+            </div>
+
+            {#if tables.length > 0}
+              <!-- Table Selector Tabs -->
+              <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+                {#each tables as tbl, idx}
+                  <button
+                    type="button"
+                    onclick={() => (activeTableIndex = idx)}
+                    class="px-3 py-1 rounded-lg text-xs font-medium border flex items-center gap-2 transition cursor-pointer {activeTableIndex ===
+                    idx
+                      ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'}"
+                  >
+                    <span>{tbl.title || `Tabela ${idx + 1}`}</span>
+                    <span class="text-[10px] px-1 rounded bg-zinc-900 border border-zinc-700 font-mono">
+                      {tbl.diceType}
+                    </span>
+                  </button>
+                {/each}
+              </div>
+
+              <!-- Active Table Editor & Roller -->
+              {#if tables[activeTableIndex]}
+                {@const currentTable = tables[activeTableIndex]}
+                <div class="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-4">
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+                    <div class="flex-1 grid grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        bind:value={currentTable.title}
+                        placeholder="Nome da Tabela"
+                        class="col-span-2 px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-100 font-semibold focus:outline-none focus:border-amber-500/60"
+                      />
+                      <select
+                        bind:value={currentTable.diceType}
+                        class="px-2 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-amber-400 font-mono focus:outline-none focus:border-amber-500/60"
+                      >
+                        <option value="d4">Dado 1d4</option>
+                        <option value="d6">Dado 1d6</option>
+                        <option value="d8">Dado 1d8</option>
+                        <option value="d10">Dado 1d10</option>
+                        <option value="d12">Dado 1d12</option>
+                        <option value="d20">Dado 1d20</option>
+                        <option value="d100">Dado 1d100</option>
+                      </select>
+                    </div>
+
+                    <!-- Interactive Roll Button -->
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onclick={() => rollDice(currentTable)}
+                        class="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 text-zinc-950 font-bold text-xs flex items-center gap-1.5 hover:from-amber-400 hover:to-amber-300 transition active:scale-95 shadow-md shadow-amber-500/20 cursor-pointer"
+                      >
+                        <Dices class="w-4 h-4 stroke-[2.5]" />
+                        <span>Rolar ({currentTable.diceType})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onclick={() => removeTable(activeTableIndex)}
+                        title="Eliminar Tabela"
+                        class="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-zinc-900 transition cursor-pointer"
+                      >
+                        <Trash2 class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Last Roll Callout Highlight -->
+                  {#if currentTable.lastRoll}
+                    <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center gap-3 animate-in fade-in duration-200">
+                      <div class="w-8 h-8 rounded-lg bg-amber-500 text-zinc-950 font-black text-sm flex items-center justify-center shadow-md">
+                        {currentTable.lastRoll.diceValue}
+                      </div>
+                      <div class="text-xs">
+                        <span class="font-bold text-amber-300">Resultado Sorteado ({currentTable.diceType}): </span>
+                        <span class="text-zinc-200">
+                          {currentTable.rows.find((r) => r.id === currentTable.lastRoll?.matchedRowId)?.title ||
+                            'Sem correspondência de linha'}
+                        </span>
+                      </div>
+                    </div>
+                  {/if}
+
+                  <!-- Rows Table List -->
+                  <div class="space-y-2">
+                    <div class="flex items-center justify-between text-[11px] text-zinc-500 font-semibold uppercase px-1">
+                      <span>Linhas de Encontro ({currentTable.rows.length})</span>
+                      <button
+                        type="button"
+                        onclick={() => addTableRow(currentTable)}
+                        class="text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus class="w-3 h-3" />
+                        <span>Adicionar Linha</span>
+                      </button>
+                    </div>
+
+                    <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                      {#each currentTable.rows as row (row.id)}
+                        <div
+                          class="p-2 rounded-xl border transition flex items-start gap-2 {currentTable.lastRoll
+                            ?.matchedRowId === row.id
+                            ? 'bg-amber-500/15 border-amber-500/60 ring-1 ring-amber-400'
+                            : 'bg-zinc-900/90 border-zinc-800'}"
+                        >
+                          <input
+                            type="text"
+                            placeholder="1-2"
+                            bind:value={row.range}
+                            class="w-14 px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-amber-400 text-center focus:outline-none focus:border-amber-500/60"
+                          />
+                          <div class="flex-1 space-y-1">
+                            <input
+                              type="text"
+                              placeholder="Nome do Encontro / Evento"
+                              bind:value={row.title}
+                              class="w-full px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-100 font-medium focus:outline-none focus:border-amber-500/60"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Detalhes ou consequências opcionais..."
+                              bind:value={row.description}
+                              class="w-full px-2 py-0.5 bg-zinc-950/60 border border-zinc-800/60 rounded-md text-[11px] text-zinc-400 focus:outline-none focus:border-amber-500/60"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onclick={() => removeTableRow(currentTable, row.id)}
+                            class="p-1 text-zinc-600 hover:text-rose-400 cursor-pointer"
+                          >
+                            <Trash2 class="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              {/if}
+            {:else}
+              <div class="p-8 rounded-2xl border border-dashed border-zinc-800 text-center space-y-2 bg-zinc-950/40">
+                <Dices class="w-8 h-8 mx-auto text-zinc-600" />
+                <h4 class="text-xs font-semibold text-zinc-300">Nenhuma Tabela de Encontros</h4>
+                <p class="text-[11px] text-zinc-500 max-w-xs mx-auto">
+                  Cria tabelas de encontros para rolar patrulhas, eventos ou clima diretamente neste nó.
+                </p>
+                <button
+                  type="button"
+                  onclick={addNewTable}
+                  class="px-4 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-medium hover:bg-amber-500/25 transition cursor-pointer"
+                >
+                  Criar Primeira Tabela
+                </button>
+              </div>
+            {/if}
+          </div>
+
+        <!-- TAB 3: SUB-NOTAS & DOCUMENTOS VINCULADOS -->
+        {:else if activeTab === 'notes'}
+          <div class="space-y-4">
+            <div>
+              <h3 class="text-xs font-bold text-zinc-100">Caderno de Contexto & Sub-Notas</h3>
+              <p class="text-[11px] text-zinc-400">Anexa cartas, regras de ambiente, armadilhas e lore aprofundado a esta entidade</p>
+            </div>
+
+            <!-- Add Sub-Note Form -->
+            <div class="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2.5">
+              <input
+                type="text"
+                placeholder="Título da Sub-Nota (ex: Armadilhas no Teto, Carta do Barão...)"
+                bind:value={newNoteTitle}
+                class="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-amber-500/60"
+              />
+              <textarea
+                rows="2"
+                placeholder="Conteúdo complementar ou estatísticas..."
+                bind:value={newNoteContent}
+                class="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-none"
+              ></textarea>
+              <div class="flex justify-end">
+                <button
+                  type="button"
+                  onclick={addAttachedNote}
+                  disabled={!newNoteTitle.trim()}
+                  class="px-3 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                  <span>Anexar Nota</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Notes List -->
+            {#if attachedNotes.length > 0}
+              <div class="space-y-2">
+                {#each attachedNotes as n (n.id)}
+                  <div class="p-3 rounded-xl bg-zinc-950/90 border border-zinc-800 space-y-1.5 group">
+                    <div class="flex items-center justify-between">
+                      <span class="font-semibold text-xs text-amber-400">{n.title}</span>
+                      <button
+                        type="button"
+                        onclick={() => removeAttachedNote(n.id)}
+                        class="text-zinc-600 hover:text-rose-400 p-1 cursor-pointer opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <Trash2 class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p class="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{n.content}</p>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <p class="text-[11px] text-zinc-500 italic text-center py-4">Nenhuma sub-nota anexada ainda.</p>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+      <!-- Modal Footer Actions -->
+      <div class="px-6 py-3 border-t border-zinc-800 bg-zinc-950 flex items-center justify-between">
+        <button
+          onclick={handleDelete}
+          class="px-3 py-1.5 rounded-xl text-rose-400 hover:bg-rose-950/40 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+        >
+          <Trash2 class="w-3.5 h-3.5" />
+          <span>Eliminar Nó</span>
+        </button>
+
+        <div class="flex items-center gap-2">
+          <button
+            onclick={() => campaignStore.closeNodeEditor()}
+            class="px-4 py-1.5 rounded-xl text-xs text-zinc-400 hover:bg-zinc-800 transition cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onclick={handleSave}
+            class="px-5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 text-zinc-950 font-bold text-xs flex items-center gap-1.5 hover:from-amber-400 hover:to-amber-300 transition active:scale-95 shadow-md shadow-amber-500/20 cursor-pointer"
+          >
+            <Check class="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Guardar Alterações</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
