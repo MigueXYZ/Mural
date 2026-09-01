@@ -15,8 +15,6 @@
   import '@xyflow/svelte/dist/style.css';
   import EntityNode from './nodes/EntityNode.svelte';
   import CustomLabeledEdge from './edges/CustomLabeledEdge.svelte';
-  import EditEntityModal from './EditEntityModal.svelte';
-  import EditEdgeModal from './EditEdgeModal.svelte';
   import { campaignStore } from '../../stores/campaignStore.svelte';
   import {
     autoLayoutNodes,
@@ -688,8 +686,4 @@
       class="!bg-zinc-950 !border !border-zinc-800/90 rounded-lg overflow-hidden"
     />
   </SvelteFlow>
-
-  <!-- Entity & Edge Editing Modals -->
-  <EditEntityModal />
-  <EditEdgeModal />
 </div>

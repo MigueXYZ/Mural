@@ -13,6 +13,8 @@
   import AiAssistantPanel from './lib/components/assistant/AiAssistantPanel.svelte';
   import AiSettingsModal from './lib/components/assistant/AiSettingsModal.svelte';
   import AudioPlayerWidget from './lib/components/audio/AudioPlayerWidget.svelte';
+  import EditEntityModal from './lib/components/canvas/EditEntityModal.svelte';
+  import EditEdgeModal from './lib/components/canvas/EditEdgeModal.svelte';
   import { FileText, Clock, BookOpen } from 'lucide-svelte';
 
   let activeRightTab = $state<'session' | 'clocks' | 'lore'>('session');
@@ -117,4 +119,8 @@
 
   <!-- Settings Modal when requested -->
   <AiSettingsModal bind:isOpen={appState.isSettingsOpen} />
+
+  <!-- Global Entity & Edge Editing Modals (accessible from Canvas, Atlas Map, Spotlight Search) -->
+  <EditEntityModal />
+  <EditEdgeModal />
 {/if}
