@@ -189,7 +189,77 @@ export interface MapData {
 export type AtlasMapData = MapData;
 
 // ---------------------------------------------------------------------------
-// 9. Campaign Settings & Full Campaign Data
+// 9. Custom Calendar System Types (US 154)
+// ---------------------------------------------------------------------------
+
+export type MoonPhaseType =
+  | 'new_moon'
+  | 'waxing_crescent'
+  | 'first_quarter'
+  | 'waxing_gibbous'
+  | 'full_moon'
+  | 'waning_gibbous'
+  | 'last_quarter'
+  | 'waning_crescent';
+
+export interface MoonPhaseConfig {
+  id: string;
+  name: string; // e.g. "Lua Prateada", "Selûne", "Lua de Sangue"
+  cycleDays: number; // e.g. 28, 30.5, 33
+  startingPhaseDay?: number; // offset in days
+  color?: string; // hex color for icon rendering
+}
+
+export interface MoonPhaseResult {
+  moon: MoonPhaseConfig;
+  phase: MoonPhaseType;
+  phaseName: string;
+  phaseIcon: string;
+  illuminationPercent: number;
+}
+
+export interface CalendarMonth {
+  id: string;
+  name: string;
+  days: number;
+  season?: 'Inverno' | 'Primavera' | 'Verão' | 'Outono' | string;
+  isIntercalary?: boolean; // Festival day outside standard weeks/months
+}
+
+export interface LeapYearRule {
+  enabled: boolean;
+  intervalYears: number; // e.g. every 4 years
+  monthIndex: number; // which month receives the extra day(s) (0-indexed)
+  extraDays: number; // e.g. 1
+}
+
+export interface CalendarHoliday {
+  id: string;
+  name: string;
+  monthIndex: number;
+  day: number;
+  description?: string;
+  color?: string;
+}
+
+export interface CustomCalendarConfig {
+  id: string;
+  name: string; // e.g. "Calendário de Harptos", "Calendário Solar de Aerthys"
+  description?: string;
+  weekdays: string[]; // e.g. ["Solstício", "Lunare", "Chama", ...]
+  months: CalendarMonth[];
+  yearPrefix?: string; // e.g. "Ano"
+  yearSuffix?: string; // e.g. "da 3ª Era", "DR"
+  currentYear: number;
+  currentMonthIndex: number; // 0-indexed
+  currentDay: number; // 1-indexed
+  leapYearRule?: LeapYearRule;
+  moons?: MoonPhaseConfig[];
+  holidays?: CalendarHoliday[];
+}
+
+// ---------------------------------------------------------------------------
+// 10. Campaign Settings & Full Campaign Data
 // ---------------------------------------------------------------------------
 
 export interface CampaignSettings {
@@ -228,6 +298,7 @@ export interface CampaignData {
   atlas?: AtlasMapData[];
   playlists?: AudioPlaylist[];
   settings?: CampaignSettings;
+  customCalendar?: CustomCalendarConfig;
 }
 
 export interface CampaignSummary {

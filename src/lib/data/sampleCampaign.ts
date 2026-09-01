@@ -1,5 +1,6 @@
 import type { CampaignData, EntityNodeData, CanvasRelationEdgeData } from '../types';
 import type { Node, Edge } from '@xyflow/svelte';
+import { AERTHYS_PRESET, GREGORIAN_PRESET } from '../services/calendar/calendarEngine';
 
 export const initialNodes: Node<EntityNodeData>[] = [
   {
@@ -220,6 +221,7 @@ export const initialCampaign: CampaignData = {
   ],
   nodes: initialNodes,
   edges: initialEdges,
+  customCalendar: AERTHYS_PRESET,
 };
 
 export const sampleCampaigns: CampaignData[] = [
@@ -229,7 +231,8 @@ export const sampleCampaigns: CampaignData[] = [
     name: 'Operação Crisol',
     system: 'Ordem Paranormal',
     currentSession: 4,
-    inGamePeriod: 'Outubro de 2024',
+    inGamePeriod: '1 de Outubro, Ano 2024',
+    customCalendar: GREGORIAN_PRESET,
     description: 'Investigação de anomalias paranormais de Sangue num antigo sanatório abandonado.',
     updatedAt: 'Ontem',
     clocks: [

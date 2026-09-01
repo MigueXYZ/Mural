@@ -13,6 +13,7 @@ import './tier3_combinations.test';
 import './tier4_scenarios.test';
 import './tier5_adversarial.test';
 import './tier6_taiga_us.test';
+import './tier7_custom_calendar.test';
 
 async function main() {
   console.log('\n' + '='.repeat(80));

@@ -36,16 +36,11 @@
     }, 450); // 450ms grace period
   }
 
-  function startEditDate() {
-    tempDate = campaignStore.campaign.inGamePeriod || 'Presente';
-    isEditingDate = true;
-  }
+  const moonPhases = $derived(campaignStore.getCurrentMoonPhases());
+  const primaryMoon = $derived(moonPhases[0]);
 
-  function saveDate() {
-    if (tempDate.trim()) {
-      campaignStore.updateInGamePeriod(tempDate.trim());
-    }
-    isEditingDate = false;
+  function handleOpenCalendar() {
+    campaignStore.openCalendar();
   }
 
   function handleAddSession() {
@@ -56,33 +51,35 @@
 </script>
 
 <footer class="h-10 border-t border-zinc-800/80 bg-zinc-950 px-4 flex items-center justify-between text-xs select-none z-20">
-  <!-- Editable In-Game Date -->
-  <div class="flex items-center gap-2">
-    {#if isEditingDate}
-      <form onsubmit={(e) => { e.preventDefault(); saveDate(); }} class="flex items-center gap-1.5">
-        <Calendar class="w-3.5 h-3.5 text-amber-400" />
-        <input
-          type="text"
-          bind:value={tempDate}
-          onblur={saveDate}
-          class="px-2 py-0.5 bg-zinc-900 border border-amber-500/60 rounded text-[11px] text-amber-300 font-mono focus:outline-none"
-        />
-        <button type="submit" class="p-1 text-amber-400 hover:text-amber-300">
-          <Check class="w-3 h-3" />
-        </button>
-      </form>
-    {:else}
-      <button
-        type="button"
-        onclick={startEditDate}
-        title="Clique para editar a data no mundo"
-        class="flex items-center gap-1.5 text-zinc-400 hover:text-amber-300 transition cursor-pointer group"
-      >
-        <Calendar class="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition" />
-        <span class="font-medium text-[11px]">{campaignStore.campaign.inGamePeriod || 'Presente'}</span>
-        <Edit2 class="w-2.5 h-2.5 text-zinc-600 group-hover:text-amber-400 transition" />
-      </button>
-    {/if}
+  <!-- Interactive Custom Calendar Date Button (US 154) -->
+  <div class="flex items-center gap-1.5">
+    <button
+      type="button"
+      onclick={handleOpenCalendar}
+      title="Abrir Calendário da Campanha e Gerir Tempo"
+      class="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-500/50 hover:bg-zinc-900 text-zinc-300 hover:text-amber-300 transition cursor-pointer shadow-xs group"
+    >
+      <Calendar class="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition" />
+      <span class="font-medium text-[11px] text-zinc-200 group-hover:text-amber-300 transition">
+        {campaignStore.campaign.inGamePeriod || 'Presente'}
+      </span>
+      {#if primaryMoon}
+        <span class="text-xs" title={`${primaryMoon.moon.name}: ${primaryMoon.phaseName} (${primaryMoon.illuminationPercent}%)`}>
+          {primaryMoon.phaseIcon}
+        </span>
+      {/if}
+    </button>
+
+    <!-- Quick +1 Day Advancement Button -->
+    <button
+      type="button"
+      onclick={() => campaignStore.advanceCalendarDays(1)}
+      title="Avançar 1 Dia no Calendário"
+      class="p-1 rounded-lg text-zinc-500 hover:text-amber-300 hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition text-[11px] font-mono font-bold flex items-center gap-0.5 cursor-pointer"
+    >
+      <Plus class="w-3 h-3 text-amber-400" />
+      <span>1d</span>
+    </button>
   </div>
 
   <!-- Timeline nodes track -->

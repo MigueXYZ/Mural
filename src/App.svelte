@@ -15,6 +15,8 @@
   import AudioPlayerWidget from './lib/components/audio/AudioPlayerWidget.svelte';
   import EditEntityModal from './lib/components/canvas/EditEntityModal.svelte';
   import EditEdgeModal from './lib/components/canvas/EditEdgeModal.svelte';
+  import CalendarModal from './lib/components/calendar/CalendarModal.svelte';
+  import CalendarConfigModal from './lib/components/calendar/CalendarConfigModal.svelte';
   import { FileText, Clock, BookOpen } from 'lucide-svelte';
 
   let activeRightTab = $state<'session' | 'clocks' | 'lore'>('session');
@@ -123,4 +125,8 @@
   <!-- Global Entity & Edge Editing Modals (accessible from Canvas, Atlas Map, Spotlight Search) -->
   <EditEntityModal />
   <EditEdgeModal />
+
+  <!-- Global Custom Calendar Modals (US 154) -->
+  <CalendarModal />
+  <CalendarConfigModal />
 {/if}

@@ -8,10 +8,21 @@ import type {
   CanvasRelationEdgeData,
   CanvasRelationEdge,
   RelationType,
+  CustomCalendarConfig,
+  MoonPhaseResult,
 } from '../types';
 import type { Node, Edge } from '@xyflow/svelte';
 import { writable, get } from 'svelte/store';
 import { storageService, autoSaveEngine } from '../services/storage';
+import {
+  formatDate,
+  advanceDays,
+  advanceMonths,
+  advanceYears,
+  getMoonPhases,
+  AERTHYS_PRESET,
+  GREGORIAN_PRESET,
+} from '../services/calendar/calendarEngine';
 
 class CampaignStore {
   // Active Campaign Reactive State
@@ -27,6 +38,10 @@ class CampaignStore {
   // Node & Edge Editing Modal State
   editingNode = $state<EntityNodeData | null>(null);
   editingEdge = $state<CanvasRelationEdge | null>(null);
+
+  // Custom Calendar Modal State (US 154)
+  isCalendarOpen = $state<boolean>(false);
+  isCalendarConfigOpen = $state<boolean>(false);
 
   // Persistence & Autosave Reactive State
   isDirty = $state<boolean>(false);
@@ -155,6 +170,17 @@ class CampaignStore {
     }
 
     this.campaign = JSON.parse(JSON.stringify(data));
+    
+    // Normalize custom calendar configuration with backward compatibility
+    if (!this.campaign.customCalendar) {
+      const isModern = (this.campaign.system || '').toLowerCase().includes('ordem') || (this.campaign.system || '').toLowerCase().includes('modern');
+      const defaultCal: CustomCalendarConfig = JSON.parse(JSON.stringify(isModern ? GREGORIAN_PRESET : AERTHYS_PRESET));
+      this.campaign.customCalendar = defaultCal;
+      if (!this.campaign.inGamePeriod) {
+        this.campaign.inGamePeriod = formatDate(defaultCal);
+      }
+    }
+
     this.nodes.set(JSON.parse(JSON.stringify(data.nodes || [])));
     const normalizedEdges = (data.edges || []).map((edge: any) => ({
       ...edge,
@@ -573,6 +599,78 @@ class CampaignStore {
       });
     }
     this.markDirty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Custom Calendar Actions (US 154)
+  // ---------------------------------------------------------------------------
+
+  openCalendar() {
+    this.isCalendarOpen = true;
+  }
+
+  closeCalendar() {
+    this.isCalendarOpen = false;
+  }
+
+  openCalendarConfig() {
+    this.isCalendarConfigOpen = true;
+  }
+
+  closeCalendarConfig() {
+    this.isCalendarConfigOpen = false;
+  }
+
+  get activeCalendar(): CustomCalendarConfig {
+    if (!this.campaign.customCalendar) {
+      this.campaign.customCalendar = JSON.parse(JSON.stringify(AERTHYS_PRESET));
+    }
+    return this.campaign.customCalendar!;
+  }
+
+  updateCustomCalendar(config: CustomCalendarConfig) {
+    this.recordSnapshot();
+    this.campaign.customCalendar = JSON.parse(JSON.stringify(config));
+    const formatted = formatDate(config);
+    this.campaign.inGamePeriod = formatted;
+    if (this.campaign.timeline) {
+      this.updateSessionData(this.campaign.currentSession, { inGameDate: formatted });
+    }
+    this.markDirty();
+  }
+
+  advanceCalendarDays(days: number) {
+    const cal = this.activeCalendar;
+    const updated = advanceDays(cal, days);
+    this.updateCustomCalendar(updated);
+  }
+
+  advanceCalendarMonths(months: number) {
+    const cal = this.activeCalendar;
+    const updated = advanceMonths(cal, months);
+    this.updateCustomCalendar(updated);
+  }
+
+  advanceCalendarYears(years: number) {
+    const cal = this.activeCalendar;
+    const updated = advanceYears(cal, years);
+    this.updateCustomCalendar(updated);
+  }
+
+  setCalendarDate(year: number, monthIndex: number, day: number) {
+    const cal = this.activeCalendar;
+    const updated: CustomCalendarConfig = {
+      ...cal,
+      currentYear: year,
+      currentMonthIndex: monthIndex,
+      currentDay: day,
+    };
+    this.updateCustomCalendar(updated);
+  }
+
+  getCurrentMoonPhases(): MoonPhaseResult[] {
+    const cal = this.activeCalendar;
+    return getMoonPhases(cal.currentYear, cal.currentMonthIndex, cal.currentDay, cal);
   }
 }
 
