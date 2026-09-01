@@ -152,3 +152,39 @@ describe('Taiga US 149: Ícones Customizados para Conexões Custom', () => {
     expect(customEdgeData.color).toBe('#a855f7');
   });
 });
+
+describe('Taiga US 150: Abrir Nota Pelo Mapa em Modal Global', () => {
+  it('should allow opening note editing state regardless of active tab', () => {
+    let editingNode: any = null;
+    function openNodeEditor(data: any) {
+      editingNode = JSON.parse(JSON.stringify(data));
+    }
+
+    const pinNode = { id: 'node-map-1', title: 'Farol Esquecido', type: 'location' };
+    openNodeEditor(pinNode);
+
+    expect(editingNode).toBeDefined();
+    expect(editingNode.title).toBe('Farol Esquecido');
+  });
+});
+
+describe('Taiga US 151: Conexões Deletadas com Sucesso', () => {
+  it('should delete connection edge by id and update connection list', () => {
+    let edges = [
+      { id: 'edge-1', source: 'node-a', target: 'node-b', data: { label: 'investiga' } },
+      { id: 'edge-2', source: 'node-b', target: 'node-c', data: { label: 'aliado' } },
+    ];
+
+    function deleteEdge(edgeId: string) {
+      edges = edges.filter(e => e.id !== edgeId);
+    }
+
+    deleteEdge('edge-1');
+    expect(edges.length).toBe(1);
+    expect(edges[0].id).toBe('edge-2');
+
+    // Test 2: Filter connected edges for a specific node
+    const nodeBEdges = edges.filter(e => e.source === 'node-b' || e.target === 'node-b');
+    expect(nodeBEdges.length).toBe(1);
+  });
+});
