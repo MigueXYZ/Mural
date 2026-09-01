@@ -202,15 +202,65 @@ class OrdoP2PService {
       }
 
       case 'DICE_ROLL': {
-        const roll = message.payload as OrdoDiceRollEvent;
-        if (roll) {
-          const eventWithId: OrdoDiceRollEvent = {
-            ...roll,
-            id: roll.id || `roll-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            timestamp: roll.timestamp || Date.now(),
-          };
-          this.recentRolls = [eventWithId, ...this.recentRolls.slice(0, 49)];
+        const rawRoll = (message.payload || {}) as any;
+
+        // Find matched character from connected peers if characterName is not supplied or is placeholder
+        const matchedChar = this.characters.find(
+          (c) => c.peerId === peerId || (rawRoll.characterId && c.id === rawRoll.characterId)
+        );
+
+        let charName = '';
+        if (typeof rawRoll.characterName === 'string' && rawRoll.characterName.trim() && rawRoll.characterName !== '0') {
+          charName = rawRoll.characterName.trim();
+        } else if (typeof rawRoll.nomePersonagem === 'string' && rawRoll.nomePersonagem.trim() && rawRoll.nomePersonagem !== '0') {
+          charName = rawRoll.nomePersonagem.trim();
+        } else if (typeof rawRoll.character === 'string' && rawRoll.character.trim() && rawRoll.character !== '0') {
+          charName = rawRoll.character.trim();
+        } else if (typeof rawRoll.nome === 'string' && rawRoll.nome.trim() && rawRoll.nome !== '0') {
+          charName = rawRoll.nome.trim();
+        } else if (matchedChar?.name) {
+          charName = matchedChar.name;
+        } else if (message.senderName && message.senderName !== 'Jogador' && message.senderName !== '0') {
+          charName = message.senderName;
+        } else {
+          charName = 'Personagem';
         }
+
+        let playerName = '';
+        if (typeof rawRoll.playerName === 'string' && rawRoll.playerName.trim() && rawRoll.playerName !== '0') {
+          playerName = rawRoll.playerName.trim();
+        } else if (matchedChar?.playerName) {
+          playerName = matchedChar.playerName;
+        } else if (message.senderName && message.senderName !== '0' && message.senderName !== charName) {
+          playerName = message.senderName;
+        }
+
+        const diceResults = Array.isArray(rawRoll.diceResults)
+          ? rawRoll.diceResults
+          : Array.isArray(rawRoll.dices)
+          ? rawRoll.dices
+          : Array.isArray(rawRoll.dados)
+          ? rawRoll.dados
+          : [rawRoll.total ?? 0];
+
+        const eventWithId: OrdoDiceRollEvent = {
+          ...rawRoll,
+          id: rawRoll.id || `roll-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          characterId: rawRoll.characterId || matchedChar?.id || peerId,
+          characterName: charName,
+          playerName: playerName || '',
+          rollType: rawRoll.rollType || 'pericia',
+          label: rawRoll.label || rawRoll.pericia || rawRoll.skill || rawRoll.nome || 'Rolagem',
+          diceFormula: rawRoll.diceFormula || rawRoll.formula || '',
+          diceResults,
+          keptValue: rawRoll.keptValue ?? Math.max(...diceResults),
+          total: rawRoll.total ?? Math.max(...diceResults),
+          isCritical: Boolean(rawRoll.isCritical || rawRoll.critico || diceResults.includes(20)),
+          isFumble: Boolean(rawRoll.isFumble || rawRoll.desastre || (diceResults.length > 0 && diceResults.every((d: number) => d === 1))),
+          timestamp: rawRoll.timestamp || message.timestamp || Date.now(),
+        };
+
+        this.recentRolls = [eventWithId, ...this.recentRolls.slice(0, 49)];
         break;
       }
 

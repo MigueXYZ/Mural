@@ -307,19 +307,25 @@
             {#each ordoP2P.recentRolls as roll (roll.id)}
               <div class="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-1 animate-in fade-in duration-150">
                 <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-1.5">
-                    <span class="font-bold text-xs text-zinc-200">{roll.characterName}</span>
-                    <span class="text-[10px] text-zinc-500">({roll.playerName})</span>
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="font-bold text-xs text-zinc-100 truncate">
+                      {roll.characterName || 'Personagem'}
+                    </span>
+                    {#if roll.playerName && roll.playerName !== roll.characterName && roll.playerName !== '0' && roll.playerName !== 'Jogador'}
+                      <span class="text-[10px] text-zinc-500 truncate">({roll.playerName})</span>
+                    {/if}
                   </div>
-                  <span class="text-[10px] text-zinc-500 font-mono">
+                  <span class="text-[10px] text-zinc-500 font-mono shrink-0">
                     {new Date(roll.timestamp).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </span>
                 </div>
 
                 <div class="flex items-center justify-between gap-2">
-                  <span class="text-[11px] text-amber-400 font-medium">{roll.label}</span>
-                  <div class="flex items-center gap-1 font-mono">
-                    <span class="text-[10px] text-zinc-500">[{roll.diceResults.join(', ')}]</span>
+                  <span class="text-[11px] text-amber-400 font-medium truncate">{roll.label}</span>
+                  <div class="flex items-center gap-1 font-mono shrink-0">
+                    {#if roll.diceResults && roll.diceResults.length > 0}
+                      <span class="text-[10px] text-zinc-500">[{roll.diceResults.join(', ')}]</span>
+                    {/if}
                     <span class="text-xs font-black text-cyan-300">= {roll.total}</span>
                   </div>
                 </div>

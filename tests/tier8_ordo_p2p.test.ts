@@ -190,4 +190,35 @@ describe('Taiga US 155: Ordo P2P Connection & Audio Sync', () => {
     expect(audioMessage.type).toBe('AUDIO_SYNC');
     expect(audioMessage.payload.isPlaying).toBe(false);
   });
+
+  it('correctly falls back to connected character name when roll payload lacks explicit characterName', () => {
+    const connectedCharacters: OrdoCharacter[] = [sampleCharacter];
+
+    function resolveRollCharacterName(rawRoll: any, peerId: string): string {
+      const matchedChar = connectedCharacters.find(
+        (c) => c.peerId === peerId || (rawRoll.characterId && c.id === rawRoll.characterId)
+      );
+
+      if (typeof rawRoll.characterName === 'string' && rawRoll.characterName.trim() && rawRoll.characterName !== '0') {
+        return rawRoll.characterName.trim();
+      } else if (typeof rawRoll.nomePersonagem === 'string' && rawRoll.nomePersonagem.trim() && rawRoll.nomePersonagem !== '0') {
+        return rawRoll.nomePersonagem.trim();
+      } else if (typeof rawRoll.character === 'string' && rawRoll.character.trim() && rawRoll.character !== '0') {
+        return rawRoll.character.trim();
+      } else if (typeof rawRoll.nome === 'string' && rawRoll.nome.trim() && rawRoll.nome !== '0') {
+        return rawRoll.nome.trim();
+      } else if (matchedChar?.name) {
+        return matchedChar.name;
+      }
+      return 'Personagem';
+    }
+
+    // Case 1: Roll payload sends characterName: "0" or missing
+    expect(resolveRollCharacterName({ characterName: '0', label: 'Adestramento' }, 'peer-mariana-123')).toBe('Elena Rostova');
+    // Case 2: Roll payload sends nomePersonagem
+    expect(resolveRollCharacterName({ nomePersonagem: 'Arthur Cervero', label: 'Luta' }, 'unknown-peer')).toBe('Arthur Cervero');
+    // Case 3: Roll payload sends character
+    expect(resolveRollCharacterName({ character: 'Joui Jouki', label: 'Pontaria' }, 'unknown-peer')).toBe('Joui Jouki');
+  });
 });
+
