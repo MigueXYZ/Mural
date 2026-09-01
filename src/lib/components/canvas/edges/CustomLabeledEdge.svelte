@@ -184,6 +184,7 @@
   }
 
   function handleDelete(e: MouseEvent) {
+    e.preventDefault();
     e.stopPropagation();
     campaignStore.deleteEdge(id);
   }
@@ -235,8 +236,8 @@
         {/if}
       </button>
 
-      <!-- Hover Action Buttons (Edit & Delete) -->
-      <div class="hidden group-hover/edge:flex items-center gap-0.5 pl-1 border-l border-zinc-700/60 ml-0.5">
+      <!-- Hover / Selection Action Buttons (Edit & Delete) -->
+      <div class="{selected ? 'flex' : 'hidden group-hover/edge:flex'} items-center gap-0.5 pl-1 border-l border-zinc-700/60 ml-0.5">
         <button
           type="button"
           onclick={handleOpenEditor}
