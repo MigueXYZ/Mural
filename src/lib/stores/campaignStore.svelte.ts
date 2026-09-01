@@ -156,7 +156,19 @@ class CampaignStore {
 
     this.campaign = JSON.parse(JSON.stringify(data));
     this.nodes.set(JSON.parse(JSON.stringify(data.nodes || [])));
-    this.edges.set(JSON.parse(JSON.stringify(data.edges || [])));
+    const normalizedEdges = (data.edges || []).map((edge: any) => ({
+      ...edge,
+      type: 'customLabeledEdge',
+      data: {
+        label: edge.data?.label || 'ligado a',
+        relationType: edge.data?.relationType || 'neutral',
+        pathType: edge.data?.pathType || 'smoothstep',
+        bidirectional: Boolean(edge.data?.bidirectional),
+        notes: edge.data?.notes || '',
+        ...edge.data,
+      },
+    }));
+    this.edges.set(JSON.parse(JSON.stringify(normalizedEdges)));
     this.searchQuery = '';
     this.selectedEntity = null;
     this.editingNode = null;

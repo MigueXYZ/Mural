@@ -64,6 +64,10 @@
   const edgeTypes: EdgeTypes = {
     customLabeledEdge: CustomLabeledEdge as any,
     smoothstep: CustomLabeledEdge as any,
+    default: CustomLabeledEdge as any,
+    straight: CustomLabeledEdge as any,
+    bezier: CustomLabeledEdge as any,
+    step: CustomLabeledEdge as any,
   };
 
   const nodesStore = campaignStore.nodes;
@@ -159,6 +163,8 @@
     if (!connection.source || !connection.target) return;
     if (connection.source === connection.target) return;
 
+    campaignStore.recordSnapshot();
+
     const newEdge: Edge<CanvasRelationEdgeData> = {
       id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
       source: connection.source,
@@ -176,6 +182,33 @@
     };
 
     edgesStore.update((list) => [...list, newEdge]);
+    campaignStore.markDirty();
+  }
+
+  // 3.5. Native Svelte Flow Elements Deletion Callback
+  function handleDeleteElements(params: { nodes?: any[]; edges?: any[] }) {
+    const { nodes: deletedNodes, edges: deletedEdges } = params || {};
+    let changed = false;
+
+    if (deletedEdges && deletedEdges.length > 0) {
+      campaignStore.recordSnapshot();
+      for (const e of deletedEdges) {
+        edgesStore.update((list) => list.filter((item) => item.id !== e.id));
+      }
+      changed = true;
+    }
+
+    if (deletedNodes && deletedNodes.length > 0) {
+      if (!changed) campaignStore.recordSnapshot();
+      const nodeSet = new Set(deletedNodes.map((n) => n.id));
+      nodesStore.update((list) => list.filter((n) => !nodeSet.has(n.id)));
+      edgesStore.update((list) => list.filter((e) => !nodeSet.has(e.source) && !nodeSet.has(e.target)));
+      changed = true;
+    }
+
+    if (changed) {
+      campaignStore.markDirty();
+    }
   }
 
   // 4. Auto-Layout Application Trigger
@@ -669,8 +702,12 @@
     edges={edgesStore}
     {nodeTypes}
     {edgeTypes}
+    defaultEdgeOptions={{
+      type: 'customLabeledEdge',
+    }}
     onconnect={handleConnect}
-    deleteKey={null}
+    ondelete={handleDeleteElements}
+    deleteKey={['Delete', 'Backspace']}
     selectionMode={SelectionMode.Partial}
     panOnDrag={true}
     selectionKey="Shift"
