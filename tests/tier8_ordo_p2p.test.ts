@@ -220,5 +220,26 @@ describe('Taiga US 155: Ordo P2P Connection & Audio Sync', () => {
     // Case 3: Roll payload sends character
     expect(resolveRollCharacterName({ character: 'Joui Jouki', label: 'Pontaria' }, 'unknown-peer')).toBe('Joui Jouki');
   });
+
+  it('structures AUDIO_TRACK_DATA binary message for local audio streaming', () => {
+    const fakeBuffer = new Uint8Array([0x49, 0x44, 0x33, 0x03, 0x00]).buffer;
+    const trackDataMessage: OrdoP2PMessage<any> = {
+      type: 'AUDIO_TRACK_DATA',
+      senderId: 'mural-gm',
+      senderName: 'Mestre (Mural)',
+      timestamp: Date.now(),
+      payload: {
+        trackId: 'track-combat-1',
+        title: 'trilha_vampiros_combate',
+        mimeType: 'audio/mp3',
+        data: fakeBuffer,
+      },
+    };
+
+    expect(trackDataMessage.type).toBe('AUDIO_TRACK_DATA');
+    expect(trackDataMessage.payload.trackId).toBe('track-combat-1');
+    expect(trackDataMessage.payload.data.byteLength).toBe(5);
+  });
 });
+
 

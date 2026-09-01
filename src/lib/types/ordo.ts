@@ -99,6 +99,13 @@ export interface OrdoAudioSyncPayload {
   timestamp: number;
 }
 
+export interface OrdoAudioTrackDataPayload {
+  trackId: string;
+  title: string;
+  mimeType: string;
+  data: ArrayBuffer | Uint8Array;
+}
+
 // ---------------------------------------------------------------------------
 // 4. P2P Communication Envelope
 // ---------------------------------------------------------------------------
@@ -109,6 +116,7 @@ export type OrdoMessageType =
   | 'CHARACTER_UPDATE'
   | 'DICE_ROLL'
   | 'AUDIO_SYNC'
+  | 'AUDIO_TRACK_DATA'
   | 'AUDIO_STREAM_CHUNK'
   | 'GM_ANNOUNCEMENT'
   | 'PING'

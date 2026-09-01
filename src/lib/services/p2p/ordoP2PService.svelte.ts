@@ -149,6 +149,7 @@ class OrdoP2PService {
     conn.on('close', () => {
       console.log(`[OrdoP2P] Connection closed for peer: ${conn.peer}`);
       this.connections.delete(conn.peer);
+      this.peerCachedTracks.delete(conn.peer);
       this.connectedCount = this.connections.size;
       // Mark character as disconnected
       this.characters = this.characters.map((c) =>
@@ -159,6 +160,7 @@ class OrdoP2PService {
     conn.on('error', (err) => {
       console.warn(`[OrdoP2P] Connection error on peer ${conn.peer}:`, err);
       this.connections.delete(conn.peer);
+      this.peerCachedTracks.delete(conn.peer);
       this.connectedCount = this.connections.size;
     });
   }
@@ -303,19 +305,88 @@ class OrdoP2PService {
     }
   }
 
+  private peerCachedTracks = new Map<string, Set<string>>();
+  private trackBufferCache = new Map<string, { buffer: ArrayBuffer; mimeType: string }>();
+
+  private async getTrackBuffer(src: string, trackId: string): Promise<{ buffer: ArrayBuffer; mimeType: string } | null> {
+    if (this.trackBufferCache.has(trackId)) {
+      return this.trackBufferCache.get(trackId)!;
+    }
+
+    try {
+      if (typeof fetch === 'function' && src && (src.startsWith('blob:') || src.startsWith('http://localhost') || src.startsWith('data:'))) {
+        const response = await fetch(src);
+        const buffer = await response.arrayBuffer();
+        const mimeType = response.headers.get('content-type') || 'audio/mpeg';
+        const entry = { buffer, mimeType };
+        this.trackBufferCache.set(trackId, entry);
+        return entry;
+      }
+    } catch (err) {
+      console.warn(`[OrdoP2P] Could not fetch audio buffer for track ${trackId}:`, err);
+    }
+    return null;
+  }
+
   /**
    * Broadcasts current soundtrack playback state to all Ordo players.
    */
-  broadcastAudioSync() {
+  async broadcastAudioSync() {
     if (!this.isOpen || !this.isAudioSyncActive) return;
 
     const track = audioEngine.currentMusicTrack;
+    if (!track) {
+      this.broadcastMessage('AUDIO_SYNC', {
+        trackId: '',
+        title: '',
+        isPlaying: false,
+        currentTime: 0,
+        volumeMultiplier: audioEngine.masterVolume,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    const isLocalBlob = track.src && (track.src.startsWith('blob:') || track.src.startsWith('http://localhost') || track.src.startsWith('data:'));
+    const isPublicWeb = track.src && track.src.startsWith('http') && !track.src.startsWith('http://localhost');
+
+    // If it's a local track/blob, stream binary data to any peers that don't have it cached
+    if (isLocalBlob) {
+      const trackData = await this.getTrackBuffer(track.src, track.id);
+      if (trackData) {
+        for (const [peerId, conn] of this.connections.entries()) {
+          if (!conn.open) continue;
+          let cachedSet = this.peerCachedTracks.get(peerId);
+          if (!cachedSet) {
+            cachedSet = new Set();
+            this.peerCachedTracks.set(peerId, cachedSet);
+          }
+
+          if (!cachedSet.has(track.id)) {
+            console.log(`[OrdoP2P] Streaming audio buffer (${trackData.buffer.byteLength} bytes) to peer ${peerId}`);
+            conn.send({
+              type: 'AUDIO_TRACK_DATA',
+              senderId: 'mural-gm',
+              senderName: 'Mestre (Mural)',
+              timestamp: Date.now(),
+              payload: {
+                trackId: track.id,
+                title: track.title,
+                mimeType: trackData.mimeType,
+                data: trackData.buffer,
+              },
+            });
+            cachedSet.add(track.id);
+          }
+        }
+      }
+    }
+
     const payload: OrdoAudioSyncPayload = {
-      trackId: track?.id || '',
-      title: track?.title || '',
-      artist: track?.artist || '',
-      src: track?.src || '',
-      url: track?.src || '',
+      trackId: track.id,
+      title: track.title,
+      artist: track.artist || '',
+      url: isPublicWeb ? track.src : '',
       isPlaying: audioEngine.isPlayingMusic,
       currentTime: audioEngine.currentTime,
       duration: audioEngine.duration,
@@ -326,14 +397,46 @@ class OrdoP2PService {
     this.broadcastMessage('AUDIO_SYNC', payload);
   }
 
-  private sendAudioSyncToPeer(conn: DataConnection) {
+  private async sendAudioSyncToPeer(conn: DataConnection) {
     const track = audioEngine.currentMusicTrack;
+    if (!track) return;
+
+    const isLocalBlob = track.src && (track.src.startsWith('blob:') || track.src.startsWith('http://localhost') || track.src.startsWith('data:'));
+    const isPublicWeb = track.src && track.src.startsWith('http') && !track.src.startsWith('http://localhost');
+
+    if (isLocalBlob) {
+      const trackData = await this.getTrackBuffer(track.src, track.id);
+      if (trackData && conn.open) {
+        let cachedSet = this.peerCachedTracks.get(conn.peer);
+        if (!cachedSet) {
+          cachedSet = new Set();
+          this.peerCachedTracks.set(conn.peer, cachedSet);
+        }
+
+        if (!cachedSet.has(track.id)) {
+          console.log(`[OrdoP2P] Sending initial audio buffer to newly connected peer ${conn.peer}`);
+          conn.send({
+            type: 'AUDIO_TRACK_DATA',
+            senderId: 'mural-gm',
+            senderName: 'Mestre (Mural)',
+            timestamp: Date.now(),
+            payload: {
+              trackId: track.id,
+              title: track.title,
+              mimeType: trackData.mimeType,
+              data: trackData.buffer,
+            },
+          });
+          cachedSet.add(track.id);
+        }
+      }
+    }
+
     const payload: OrdoAudioSyncPayload = {
-      trackId: track?.id || '',
-      title: track?.title || '',
-      artist: track?.artist || '',
-      src: track?.src || '',
-      url: track?.src || '',
+      trackId: track.id,
+      title: track.title,
+      artist: track.artist || '',
+      url: isPublicWeb ? track.src : '',
       isPlaying: audioEngine.isPlayingMusic,
       currentTime: audioEngine.currentTime,
       duration: audioEngine.duration,
