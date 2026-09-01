@@ -17,6 +17,7 @@ class OrdoP2PService {
   // Reactive State (Svelte 5 Runes)
   isOpen = $state<boolean>(false);
   isConnecting = $state<boolean>(false);
+  isModalOpen = $state<boolean>(false);
   roomCode = $state<string>('');
   characters = $state<OrdoCharacter[]>([]);
   recentRolls = $state<OrdoDiceRollEvent[]>([]);
@@ -32,6 +33,15 @@ class OrdoP2PService {
     audioEngine.onAudioSyncCallback = () => {
       this.broadcastAudioSync();
     };
+  }
+
+  openModal() {
+    this.isModalOpen = true;
+  }
+
+  closeModal() {
+    this.isModalOpen = false;
+    this.lastError = null;
   }
 
   generateRoomCode(): string {

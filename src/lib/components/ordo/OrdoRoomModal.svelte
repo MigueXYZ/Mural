@@ -35,12 +35,12 @@
   }
 </script>
 
-{#if ordoP2P.isConnecting || ordoP2P.isOpen || ordoP2P.lastError}
+{#if ordoP2P.isModalOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4 animate-in fade-in duration-150 font-sans"
-    onclick={(e) => { if (e.target === e.currentTarget) ordoP2P.lastError = null; }}
+    onclick={(e) => { if (e.target === e.currentTarget) ordoP2P.closeModal(); }}
     role="dialog"
     aria-modal="true"
     tabindex="-1"
@@ -78,9 +78,7 @@
 
         <button
           type="button"
-          onclick={() => {
-            ordoP2P.lastError = null;
-          }}
+          onclick={() => ordoP2P.closeModal()}
           class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 flex items-center justify-center transition cursor-pointer"
         >
           <X class="w-4 h-4" />
@@ -185,9 +183,7 @@
 
         <button
           type="button"
-          onclick={() => {
-            ordoP2P.lastError = null;
-          }}
+          onclick={() => ordoP2P.closeModal()}
           class="px-4 py-1.5 rounded-xl text-xs text-zinc-400 hover:bg-zinc-800 transition cursor-pointer"
         >
           Fechar

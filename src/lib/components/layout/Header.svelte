@@ -404,14 +404,8 @@
     <!-- Ordo P2P Room Button (US 155) -->
     <button
       type="button"
-      onclick={() => {
-        if (ordoP2P.isOpen) {
-          ordoP2P.isConnecting = false; // keep state open
-        } else {
-          ordoP2P.createRoom();
-        }
-      }}
-      title={ordoP2P.isOpen ? `Ordo Live Ativo (${ordoP2P.connectedCount} players conectados)` : 'Ligar Sala P2P Ordo'}
+      onclick={() => ordoP2P.openModal()}
+      title={ordoP2P.isOpen ? `Ordo Live Ativo (${ordoP2P.connectedCount} players conectados)` : 'Gerir Sala P2P Ordo'}
       class="h-8 px-2.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer {ordoP2P.isOpen
         ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
         : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'}"

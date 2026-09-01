@@ -49,7 +49,13 @@
         <Radio class="w-3.5 h-3.5 {ordoP2P.isOpen ? 'animate-pulse' : ''}" />
       </div>
 
-      <div class="min-w-0">
+      <div 
+        class="min-w-0 cursor-pointer"
+        onclick={() => ordoP2P.openModal()}
+        role="button"
+        tabindex="0"
+        onkeydown={(e) => { if (e.key === 'Enter') ordoP2P.openModal(); }}
+      >
         <div class="flex items-center gap-1.5">
           <span class="font-bold text-xs text-zinc-100 truncate">Sala Ordo Live</span>
           {#if ordoP2P.isOpen}
@@ -70,6 +76,15 @@
 
     <!-- Actions -->
     <div class="flex items-center gap-1 shrink-0">
+      <button
+        type="button"
+        onclick={() => ordoP2P.openModal()}
+        class="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-cyan-500/40 text-zinc-300 hover:text-cyan-300 transition cursor-pointer"
+        title="Configurações da Sala"
+      >
+        <Radio class="w-3.5 h-3.5" />
+      </button>
+
       {#if ordoP2P.isOpen}
         <button
           type="button"
