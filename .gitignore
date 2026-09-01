@@ -41,3 +41,7 @@ target/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Agents & Autonomous Workspace Artifacts
+.agents/
+.gemini/
