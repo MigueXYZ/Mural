@@ -175,6 +175,7 @@ class AudioEngine {
   crossfadeSec = $state(2.5);
 
   playlists = $state<AudioPlaylist[]>(DEFAULT_PLAYLISTS);
+  onAudioSyncCallback: (() => void) | null = null;
 
   // Audio elements & Web Audio Context
   private musicAudio: HTMLAudioElement | null = null;
@@ -424,6 +425,7 @@ class AudioEngine {
       this.startSynthTicker();
     }
     this.updateEffectiveVolumes();
+    this.onAudioSyncCallback?.();
   }
 
   toggleMusic() {
@@ -440,6 +442,7 @@ class AudioEngine {
     }
     this.stopSynthTicker();
     this.isPlayingMusic = false;
+    this.onAudioSyncCallback?.();
   }
 
   resumeMusic() {
@@ -456,12 +459,14 @@ class AudioEngine {
       this.startSynthTicker();
     }
     this.isPlayingMusic = true;
+    this.onAudioSyncCallback?.();
   }
 
   stopMusic() {
     this.pauseMusic();
     this.currentMusicTrack = null;
     this.currentTime = 0;
+    this.onAudioSyncCallback?.();
   }
 
   nextTrack() {

@@ -17,12 +17,16 @@
   import EditEdgeModal from './lib/components/canvas/EditEdgeModal.svelte';
   import CalendarModal from './lib/components/calendar/CalendarModal.svelte';
   import CalendarConfigModal from './lib/components/calendar/CalendarConfigModal.svelte';
-  import { FileText, Clock, BookOpen } from 'lucide-svelte';
+  import OrdoLivePanel from './lib/components/ordo/OrdoLivePanel.svelte';
+  import OrdoRoomModal from './lib/components/ordo/OrdoRoomModal.svelte';
+  import { ordoP2P } from './lib/services/p2p/ordoP2PService.svelte';
+  import { FileText, Clock, BookOpen, Radio } from 'lucide-svelte';
 
-  let activeRightTab = $state<'session' | 'clocks' | 'lore'>('session');
+  let activeRightTab = $state<'session' | 'clocks' | 'lore' | 'ordo'>('session');
 
   const clocksCount = $derived((campaignStore.campaign.clocks || []).length);
   const loreCount = $derived((campaignStore.campaign.lore || []).length);
+  const ordoCount = $derived(ordoP2P.characters.length);
 </script>
 
 {#if appState.currentView === 'menu'}
@@ -46,31 +50,31 @@
         {/if}
       </main>
 
-      <!-- Right Sidebar (Session Log, Clocks, Lore, Assistant) -->
+      <!-- Right Sidebar (Session Log, Clocks, Lore, Ordo, Assistant) -->
       <aside class="w-80 border-l border-zinc-800/80 bg-zinc-950 flex flex-col justify-between overflow-y-auto z-20 select-none">
         <div class="flex flex-col flex-1 min-h-0">
           <!-- Sidebar Section Tabs -->
-          <div class="flex items-center border-b border-zinc-800/80 bg-zinc-950 px-2 pt-2 gap-1 text-xs">
+          <div class="flex items-center border-b border-zinc-800/80 bg-zinc-950 px-2 pt-2 gap-0.5 text-xs">
             <button
               onclick={() => (activeRightTab = 'session')}
-              class="flex-1 py-1.5 px-2 rounded-t-lg font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border-b-2 {activeRightTab ===
+              class="flex-1 py-1.5 px-1.5 rounded-t-lg font-semibold flex items-center justify-center gap-1 transition cursor-pointer border-b-2 {activeRightTab ===
               'session'
                 ? 'border-amber-400 text-amber-300 bg-zinc-900'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
             >
               <FileText class="w-3.5 h-3.5" />
-              <span>Sessão</span>
+              <span class="text-[11px]">Sessão</span>
             </button>
 
             <button
               onclick={() => (activeRightTab = 'clocks')}
-              class="flex-1 py-1.5 px-2 rounded-t-lg font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border-b-2 {activeRightTab ===
+              class="flex-1 py-1.5 px-1.5 rounded-t-lg font-semibold flex items-center justify-center gap-1 transition cursor-pointer border-b-2 {activeRightTab ===
               'clocks'
                 ? 'border-amber-400 text-amber-300 bg-zinc-900'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
             >
               <Clock class="w-3.5 h-3.5" />
-              <span>Relógios</span>
+              <span class="text-[11px]">Relógios</span>
               {#if clocksCount > 0}
                 <span class="text-[9px] px-1 rounded bg-zinc-800 text-zinc-400 font-mono">
                   {clocksCount}
@@ -80,16 +84,32 @@
 
             <button
               onclick={() => (activeRightTab = 'lore')}
-              class="flex-1 py-1.5 px-2 rounded-t-lg font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border-b-2 {activeRightTab ===
+              class="flex-1 py-1.5 px-1.5 rounded-t-lg font-semibold flex items-center justify-center gap-1 transition cursor-pointer border-b-2 {activeRightTab ===
               'lore'
                 ? 'border-amber-400 text-amber-300 bg-zinc-900'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
             >
               <BookOpen class="w-3.5 h-3.5" />
-              <span>Lore</span>
+              <span class="text-[11px]">Lore</span>
               {#if loreCount > 0}
                 <span class="text-[9px] px-1 rounded bg-zinc-800 text-zinc-400 font-mono">
                   {loreCount}
+                </span>
+              {/if}
+            </button>
+
+            <button
+              onclick={() => (activeRightTab = 'ordo')}
+              class="flex-1 py-1.5 px-1.5 rounded-t-lg font-semibold flex items-center justify-center gap-1 transition cursor-pointer border-b-2 {activeRightTab ===
+              'ordo'
+                ? 'border-cyan-400 text-cyan-300 bg-zinc-900'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
+            >
+              <Radio class="w-3.5 h-3.5 {ordoP2P.isOpen ? 'text-cyan-400' : ''}" />
+              <span class="text-[11px]">Ordo</span>
+              {#if ordoCount > 0}
+                <span class="text-[9px] px-1 rounded bg-cyan-950 text-cyan-300 font-mono">
+                  {ordoCount}
                 </span>
               {/if}
             </button>
@@ -103,6 +123,8 @@
               <ThreatClocksPanel />
             {:else if activeRightTab === 'lore'}
               <LorePanel />
+            {:else if activeRightTab === 'ordo'}
+              <OrdoLivePanel />
             {/if}
           </div>
         </div>
@@ -129,4 +151,7 @@
   <!-- Global Custom Calendar Modals (US 154) -->
   <CalendarModal />
   <CalendarConfigModal />
+
+  <!-- Ordo P2P Room Modal (US 155) -->
+  <OrdoRoomModal />
 {/if}

@@ -19,6 +19,7 @@
     "@xyflow/svelte": "^0.1.24",
     "clsx": "^2.1.1",
     "lucide-svelte": "^0.475.0",
+    "peerjs": "^1.5.5",
     "tailwind-merge": "^3.0.1"
   },
   "devDependencies": {
