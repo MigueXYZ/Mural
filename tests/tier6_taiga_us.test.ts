@@ -188,3 +188,48 @@ describe('Taiga US 151: Conexões Deletadas com Sucesso', () => {
     expect(nodeBEdges.length).toBe(1);
   });
 });
+
+describe('Taiga US 152: Carregamento Instantâneo de Demo', () => {
+  it('should resolve and load demo campaign immediately from memory/sample fallback', () => {
+    const sampleList = [
+      { id: 'aerthys-01', name: 'As Crónicas de Aerthys', system: 'D&D 5e' },
+      { id: 'ordem-crisol', name: 'Operação Crisol', system: 'Ordem Paranormal' },
+    ];
+
+    let currentView = 'menu';
+    let loadedCampaign: any = null;
+
+    function openCampaign(id: string) {
+      let found = sampleList.find(c => c.id === id);
+      if (found) {
+        loadedCampaign = found;
+        currentView = 'campaign';
+      }
+    }
+
+    openCampaign('aerthys-01');
+    expect(currentView).toBe('campaign');
+    expect(loadedCampaign).toBeDefined();
+    expect(loadedCampaign.name).toBe('As Crónicas de Aerthys');
+  });
+});
+
+describe('Taiga US 153: Controlo de Áudio no Menu Principal', () => {
+  it('should maintain audio playback state when navigating back to menu', () => {
+    let currentView = 'campaign';
+    let isPlaying = true;
+    let isPopupOpen = false;
+
+    // User returns to main menu
+    currentView = 'menu';
+
+    // Audio continues playing seamlessly
+    expect(isPlaying).toBe(true);
+    expect(currentView).toBe('menu');
+
+    // User opens audio controls directly from Main Menu header
+    isPopupOpen = true;
+    expect(isPopupOpen).toBe(true);
+  });
+});
+

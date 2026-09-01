@@ -136,9 +136,6 @@
 
     <!-- Bottom Session Timeline -->
     <BottomTimeline />
-
-    <!-- Floating Audio & Ambience Player Widget -->
-    <AudioPlayerWidget />
   </div>
 
   <!-- Settings Modal when requested -->
@@ -155,3 +152,6 @@
   <!-- Ordo P2P Room Modal (US 155) -->
   <OrdoRoomModal />
 {/if}
+
+<!-- Floating Audio & Ambience Player Widget (Global for Main Menu and Campaign Views - US 153) -->
+<AudioPlayerWidget />

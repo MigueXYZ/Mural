@@ -45,10 +45,32 @@ class AppState {
   }
 
   openCampaign(id: string) {
-    const found = this.campaigns.find((c) => c.id === id);
+    let found = this.campaigns.find((c) => c.id === id);
+    if (!found) {
+      found = sampleCampaigns.find((c) => c.id === id);
+      if (found) {
+        this.campaigns = [found, ...this.campaigns];
+      }
+    }
     if (found) {
       campaignStore.loadCampaign(found);
       this.currentView = 'campaign';
+    } else {
+      storageService
+        .loadCampaign(id)
+        .then((camp) => {
+          if (camp) {
+            campaignStore.loadCampaign(camp);
+            this.campaigns = [camp, ...this.campaigns.filter((c) => c.id !== camp.id)];
+            this.currentView = 'campaign';
+          }
+        })
+        .catch(() => {
+          if (sampleCampaigns[0]) {
+            campaignStore.loadCampaign(sampleCampaigns[0]);
+            this.currentView = 'campaign';
+          }
+        });
     }
   }
 

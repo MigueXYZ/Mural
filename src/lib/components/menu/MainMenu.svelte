@@ -4,6 +4,7 @@
   import CampaignWizard from './CampaignWizard.svelte';
   import DocsModal from './DocsModal.svelte';
   import HelpModal from './HelpModal.svelte';
+  import { audioEngine } from '../../services/audio/audioEngine.svelte';
   import {
     Plus,
     FolderOpen,
@@ -16,6 +17,7 @@
     HelpCircle,
     Shield,
     Layers,
+    Music,
   } from 'lucide-svelte';
 
   let isWizardOpen = $state(false);
@@ -97,7 +99,19 @@
       </div>
     </div>
 
-    <div class="flex items-center gap-4 text-xs text-zinc-400">
+    <div class="flex items-center gap-3 text-xs text-zinc-400">
+      <!-- Audio & Ambience Controller Button (US 153) -->
+      <button
+        onclick={() => (audioEngine.isPopupOpen = !audioEngine.isPopupOpen)}
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer {audioEngine.isPlayingMusic || audioEngine.isPlayingAmbience ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-sm shadow-amber-500/10' : 'border-zinc-800/80 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200'}"
+        title="Controlo de Áudio & Ambiência"
+      >
+        <Music class="w-3.5 h-3.5 {audioEngine.isPlayingMusic ? 'animate-pulse text-amber-400' : ''}" />
+        <span class="max-w-[120px] truncate">{audioEngine.isPlayingMusic ? (audioEngine.currentMusicTrack?.title || 'A Tocar') : 'Áudio'}</span>
+      </button>
+
+      <div class="w-[1px] h-4 bg-zinc-800"></div>
+
       <button
         onclick={() => (isDocsOpen = true)}
         class="hover:text-zinc-200 flex items-center gap-1.5 transition cursor-pointer"
