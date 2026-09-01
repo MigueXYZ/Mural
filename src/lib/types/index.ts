@@ -103,6 +103,7 @@ export interface CanvasRelationEdgeData extends Record<string, unknown> {
   bidirectional?: boolean;
   notes?: string;
   color?: string;
+  icon?: string;
 }
 
 export type CanvasRelationEdge = Edge<CanvasRelationEdgeData>;

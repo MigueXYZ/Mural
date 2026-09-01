@@ -1,10 +1,11 @@
 /**
  * Mural (OrdemTools) - Atmospheric Audio Engine
  * Dual-layer Web Audio & HTML5 Audio playback system with smooth crossfading,
- * local file indexing, soundboard ambience loops, and synthetic procedural fallback.
+ * local file indexing with IndexedDB persistence, soundboard ambience loops, and synthetic procedural fallback.
  */
 
 import type { AudioTrack, AudioPlaylist } from '../../types';
+import { audioStorage } from './audioStorage';
 
 // Default built-in sound presets with multiple tracks per category
 export const DEFAULT_PLAYLISTS: AudioPlaylist[] = [
@@ -191,6 +192,7 @@ class AudioEngine {
       this.currentPlaylist = this.playlists[0];
       this.currentMusicTrack = this.playlists[0]?.tracks[0] || null;
       this.duration = this.currentMusicTrack?.duration || 180;
+      this.loadPersistedCustomPlaylists();
     }
   }
 
@@ -211,6 +213,27 @@ class AudioEngine {
       const savedMusicDir = localStorage.getItem('mural_music_dir');
       if (savedMusicDir !== null) this.musicDirectoryPath = savedMusicDir;
     } catch {}
+  }
+
+  async loadPersistedCustomPlaylists() {
+    try {
+      const customPlaylists = await audioStorage.loadPersistedPlaylists();
+      if (customPlaylists && customPlaylists.length > 0) {
+        const defaultIds = new Set(DEFAULT_PLAYLISTS.map((p) => p.id));
+        const nonDefaults = customPlaylists.filter((p) => !defaultIds.has(p.id));
+        this.playlists = [...DEFAULT_PLAYLISTS, ...nonDefaults];
+
+        const savedActiveId = localStorage.getItem('mural_active_playlist_id');
+        const found = this.playlists.find((p) => p.id === savedActiveId);
+        if (found && found.tracks.length > 0) {
+          this.currentPlaylist = found;
+          this.currentMusicTrack = found.tracks[0];
+          this.duration = this.currentMusicTrack.duration || 180;
+        }
+      }
+    } catch (e) {
+      console.warn('[AudioEngine] Failed to restore custom playlists:', e);
+    }
   }
 
   private initAudioElements() {
@@ -313,10 +336,24 @@ class AudioEngine {
     }
   }
 
+  /**
+   * Converts linear slider value (0.0 to 1.0) to perceived logarithmic loudness
+   * based on human auditory curve (power 2.2 approximation).
+   */
+  private toLogarithmicGain(linear: number): number {
+    const clamped = Math.max(0, Math.min(1, linear));
+    if (clamped <= 0.001) return 0;
+    return Math.pow(clamped, 2.2);
+  }
+
   // --- Volume Calculation ---
   private updateEffectiveVolumes() {
-    const effectiveMusic = this.isMuted ? 0 : this.masterVolume * this.musicVolume;
-    const effectiveAmbience = this.isMuted ? 0 : this.masterVolume * this.ambienceVolume;
+    const logMaster = this.toLogarithmicGain(this.masterVolume);
+    const logMusic = this.toLogarithmicGain(this.musicVolume);
+    const logAmbience = this.toLogarithmicGain(this.ambienceVolume);
+
+    const effectiveMusic = this.isMuted ? 0 : logMaster * logMusic;
+    const effectiveAmbience = this.isMuted ? 0 : logMaster * logAmbience;
 
     if (this.musicAudio) {
       this.musicAudio.volume = Math.max(0, Math.min(1, effectiveMusic));
@@ -357,6 +394,12 @@ class AudioEngine {
     } else if (!this.currentPlaylist) {
       const pl = this.playlists.find((p) => p.tracks.some((t) => t.id === track.id)) || this.playlists[0];
       this.currentPlaylist = pl;
+    }
+
+    if (this.currentPlaylist?.id) {
+      try {
+        localStorage.setItem('mural_active_playlist_id', this.currentPlaylist.id);
+      } catch {}
     }
 
     this.currentMusicTrack = track;
@@ -501,7 +544,7 @@ class AudioEngine {
     } catch {}
   }
 
-  importFromDirectory(files: FileList | File[], folderName?: string) {
+  async importFromDirectory(files: FileList | File[], folderName?: string) {
     const audioExts = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac', '.webm'];
     const validFiles: File[] = [];
     for (let i = 0; i < files.length; i++) {
@@ -514,22 +557,30 @@ class AudioEngine {
 
     if (validFiles.length === 0) return;
 
-    const newTracks: AudioTrack[] = validFiles.map((file, i) => {
+    const newTracks: AudioTrack[] = [];
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
       const trackUrl = URL.createObjectURL(file);
       const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
-      return {
-        id: `track-${Date.now()}-${i}`,
+      const trackId = `track-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+
+      await audioStorage.saveTrackBlob(trackId, file, cleanTitle, folderName || 'Pasta Local', 'music');
+
+      newTracks.push({
+        id: trackId,
         title: cleanTitle,
         artist: folderName || 'Pasta Local',
         src: trackUrl,
         category: 'music',
-      };
-    });
+      });
+    }
 
     const playlistName = folderName ? `📂 ${folderName}` : `📂 Músicas Locais (${newTracks.length})`;
-    const playlist = this.createPlaylist(playlistName, 'custom');
-    this.addTracksToPlaylist(playlist.id, newTracks);
+    const playlist = this.createPlaylist(playlistName, 'custom', newTracks);
     this.currentPlaylist = playlist;
+    try {
+      localStorage.setItem('mural_active_playlist_id', playlist.id);
+    } catch {}
 
     // Start playing first or random track
     if (newTracks.length > 0) {
@@ -538,6 +589,28 @@ class AudioEngine {
         : newTracks[0];
       this.playMusic(startTrack, playlist);
     }
+  }
+
+  async addFilesToPlaylist(playlistId: string, files: FileList | File[]) {
+    const newTracks: AudioTrack[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const trackUrl = URL.createObjectURL(file);
+      const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
+      const trackId = `track-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+
+      await audioStorage.saveTrackBlob(trackId, file, cleanTitle, 'Ficheiro Local', 'music');
+
+      newTracks.push({
+        id: trackId,
+        title: cleanTitle,
+        artist: 'Ficheiro Local',
+        src: trackUrl,
+        category: 'music',
+      });
+    }
+
+    this.addTracksToPlaylist(playlistId, newTracks);
   }
 
   seek(seconds: number) {
@@ -606,24 +679,27 @@ class AudioEngine {
   }
 
   // --- Playlist Management ---
-  createPlaylist(name: string, category: AudioPlaylist['category'] = 'custom'): AudioPlaylist {
+  createPlaylist(name: string, category: AudioPlaylist['category'] = 'custom', tracks: AudioTrack[] = []): AudioPlaylist {
     const newPlaylist: AudioPlaylist = {
       id: `pl-${Date.now()}`,
       name,
       category,
-      tracks: [],
+      tracks: [...tracks],
       loop: true,
     };
     this.playlists = [...this.playlists, newPlaylist];
+    audioStorage.saveCustomPlaylists(this.playlists);
     return newPlaylist;
   }
 
-  deletePlaylist(playlistId: string) {
+  async deletePlaylist(playlistId: string) {
     if (this.currentPlaylist?.id === playlistId) {
       this.stopMusic();
       this.currentPlaylist = this.playlists[0] || null;
     }
     this.playlists = this.playlists.filter((p) => p.id !== playlistId);
+    await audioStorage.deletePlaylist(playlistId);
+    audioStorage.saveCustomPlaylists(this.playlists);
   }
 
   addTracksToPlaylist(playlistId: string, newTracks: AudioTrack[]) {
@@ -640,9 +716,10 @@ class AudioEngine {
     if (this.currentPlaylist?.id === playlistId) {
       this.currentPlaylist = this.playlists.find((p) => p.id === playlistId) || this.currentPlaylist;
     }
+    audioStorage.saveCustomPlaylists(this.playlists);
   }
 
-  removeTrackFromPlaylist(playlistId: string, trackId: string) {
+  async removeTrackFromPlaylist(playlistId: string, trackId: string) {
     if (this.currentMusicTrack?.id === trackId) {
       this.nextTrack();
     }
@@ -655,6 +732,8 @@ class AudioEngine {
       }
       return pl;
     });
+    await audioStorage.deleteTrackBlob(trackId);
+    audioStorage.saveCustomPlaylists(this.playlists);
   }
 }
 

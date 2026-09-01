@@ -25,12 +25,32 @@
     Palette,
     Link2,
     Sparkles,
+    Maximize2,
+    Minimize2,
+    Bold,
+    Italic,
+    Heading1,
+    Heading2,
+    Heading3,
+    List,
+    ListOrdered,
+    CheckSquare,
+    Quote,
+    Code,
+    Table,
+    Eye,
+    Columns,
+    Edit3,
   } from 'lucide-svelte';
+  import { renderMarkdown } from '../../utils/markdown';
 
   const node = $derived(campaignStore.editingNode);
 
   // Tab State
   let activeTab = $state<'general' | 'tables' | 'notes' | 'connections'>('general');
+  let isFullScreen = $state(false);
+  let descViewMode = $state<'edit' | 'preview' | 'split'>('edit');
+  let descTextareaRef: HTMLTextAreaElement | null = $state(null);
 
   // General tab states
   let title = $state('');
@@ -218,6 +238,24 @@
     attachedNotes = attachedNotes.filter((n) => n.id !== noteId);
   }
 
+  function insertMarkdown(prefix: string, suffix: string = '', placeholder: string = '') {
+    if (!descTextareaRef) {
+      description += `${prefix}${placeholder}${suffix}`;
+      return;
+    }
+    const start = descTextareaRef.selectionStart;
+    const end = descTextareaRef.selectionEnd;
+    const selected = description.substring(start, end) || placeholder;
+    const replacement = `${prefix}${selected}${suffix}`;
+    description = description.substring(0, start) + replacement + description.substring(end);
+    setTimeout(() => {
+      if (descTextareaRef) {
+        descTextareaRef.focus();
+        descTextareaRef.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+      }
+    }, 10);
+  }
+
   function handleSave() {
     if (node) {
       campaignStore.updateNodeData(node.id, {
@@ -247,25 +285,55 @@
 </script>
 
 {#if node}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-    <div class="w-full max-w-2xl max-h-[90vh] bg-zinc-900 border border-zinc-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4"
+    onclick={(e) => { if (e.target === e.currentTarget) campaignStore.closeNodeEditor(); }}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div class="w-full {isFullScreen ? 'max-w-[98vw] h-[96vh] max-h-[96vh]' : 'max-w-3xl max-h-[90vh]'} bg-zinc-900 border border-zinc-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all duration-200 animate-in fade-in zoom-in-95">
       <!-- Modal Header -->
-      <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between">
+      <div class="px-6 py-3.5 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div class="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
             <Sliders class="w-4 h-4" />
           </div>
           <div>
-            <h2 class="text-sm font-bold text-zinc-100">Editar Entidade / Contexto</h2>
-            <p class="text-[11px] text-zinc-400">Gerencia detalhes, tabelas de encontros e notas vinculadas</p>
+            <h2 class="text-sm font-bold text-zinc-100">
+              {type === 'note' ? 'Editor de Notas & Lore' : 'Editar Entidade / Contexto'}
+            </h2>
+            <p class="text-[11px] text-zinc-400">
+              {type === 'note' ? 'Documento formatado em WYSIWYG Markdown' : 'Gerencia detalhes, tabelas de encontros e notas vinculadas'}
+            </p>
           </div>
         </div>
-        <button
-          onclick={() => campaignStore.closeNodeEditor()}
-          class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 flex items-center justify-center transition cursor-pointer"
-        >
-          <X class="w-4 h-4" />
-        </button>
+
+        <div class="flex items-center gap-1.5">
+          <!-- Fullscreen Toggle (US 145) -->
+          <button
+            type="button"
+            onclick={() => (isFullScreen = !isFullScreen)}
+            class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 flex items-center justify-center transition cursor-pointer"
+            title={isFullScreen ? 'Sair do Ecrã Completo' : 'Ecrã Completo (Modo Editor)'}
+          >
+            {#if isFullScreen}
+              <Minimize2 class="w-4 h-4" />
+            {:else}
+              <Maximize2 class="w-4 h-4" />
+            {/if}
+          </button>
+
+          <button
+            type="button"
+            onclick={() => campaignStore.closeNodeEditor()}
+            class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 flex items-center justify-center transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <!-- Navigation Tabs -->
@@ -277,7 +345,7 @@
             : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
         >
           <Sliders class="w-3.5 h-3.5" />
-          <span>Geral</span>
+          <span>Geral & Conteúdo</span>
         </button>
 
         <button
@@ -349,16 +417,177 @@
             </div>
           </div>
 
-          <!-- Description -->
-          <div>
-            <label for="entity-edit-desc" class="block font-medium text-zinc-300 mb-1">Descrição / Informações Principais</label>
-            <textarea
-              id="entity-edit-desc"
-              rows="4"
-              bind:value={description}
-              placeholder="O que os jogadores ou o mestre sabem sobre esta entidade..."
-              class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-none leading-relaxed"
-            ></textarea>
+          <!-- WYSIWYG / Markdown Notes & Description Editor (US 145) -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <label for="entity-edit-desc" class="block font-medium text-zinc-300">
+                Conteúdo & Anotações WYSIWYG
+              </label>
+
+              <!-- View Mode Toggles -->
+              <div class="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
+                <button
+                  type="button"
+                  onclick={() => (descViewMode = 'edit')}
+                  class="px-2 py-0.5 rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer {descViewMode === 'edit'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'text-zinc-400 hover:text-zinc-200'}"
+                >
+                  <Edit3 class="w-3 h-3" />
+                  <span>Editor</span>
+                </button>
+                <button
+                  type="button"
+                  onclick={() => (descViewMode = 'preview')}
+                  class="px-2 py-0.5 rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer {descViewMode === 'preview'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'text-zinc-400 hover:text-zinc-200'}"
+                >
+                  <Eye class="w-3 h-3" />
+                  <span>Prévia</span>
+                </button>
+                {#if isFullScreen}
+                  <button
+                    type="button"
+                    onclick={() => (descViewMode = 'split')}
+                    class="px-2 py-0.5 rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer {descViewMode === 'split'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      : 'text-zinc-400 hover:text-zinc-200'}"
+                  >
+                    <Columns class="w-3 h-3" />
+                    <span>Lado a Lado</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+
+            <!-- WYSIWYG Quick Formatting Toolbar -->
+            {#if descViewMode !== 'preview'}
+              <div class="flex items-center gap-1 p-1 bg-zinc-950 rounded-xl border border-zinc-800 flex-wrap text-zinc-400">
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('**', '**', 'texto')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Negrito (**texto**)"
+                >
+                  <Bold class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('*', '*', 'texto')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Itálico (*texto*)"
+                >
+                  <Italic class="w-3.5 h-3.5" />
+                </button>
+                <div class="w-px h-4 bg-zinc-800 mx-0.5"></div>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('# ', '', 'Título 1')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Título Principal (# )"
+                >
+                  <Heading1 class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('## ', '', 'Título 2')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Subtítulo (## )"
+                >
+                  <Heading2 class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('### ', '', 'Título 3')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Secção (### )"
+                >
+                  <Heading3 class="w-3.5 h-3.5" />
+                </button>
+                <div class="w-px h-4 bg-zinc-800 mx-0.5"></div>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('- ', '', 'Item da lista')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Lista com Marcadores (- )"
+                >
+                  <List class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('1. ', '', 'Primeiro passo')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Lista Numerada (1. )"
+                >
+                  <ListOrdered class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('- [ ] ', '', 'Tarefa a investigar')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Checklist / Tarefa (- [ ] )"
+                >
+                  <CheckSquare class="w-3.5 h-3.5" />
+                </button>
+                <div class="w-px h-4 bg-zinc-800 mx-0.5"></div>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('> ', '', 'Citação de lore')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Citação (> )"
+                >
+                  <Quote class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('> 🔒 **Segredo:** ', '', 'Informação oculta')}
+                  class="p-1.5 hover:bg-rose-950/60 hover:text-rose-300 rounded-md transition cursor-pointer text-rose-400"
+                  title="Caixa de Segredo (> 🔒 )"
+                >
+                  <Lock class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('```\n', '\n```', 'Texto de handout')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Bloco de Código / Carta (```)"
+                >
+                  <Code class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => insertMarkdown('| Coluna 1 | Coluna 2 |\n|---|---|\n| Item 1 | Item 2 |', '', '')}
+                  class="p-1.5 hover:bg-zinc-800 hover:text-zinc-200 rounded-md transition cursor-pointer"
+                  title="Inserir Tabela"
+                >
+                  <Table class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            {/if}
+
+            <!-- Editor View Containers -->
+            <div class="grid {descViewMode === 'split' && isFullScreen ? 'grid-cols-2 gap-3' : 'grid-cols-1'}">
+              {#if descViewMode === 'edit' || (descViewMode === 'split' && isFullScreen)}
+                <textarea
+                  id="entity-edit-desc"
+                  rows={isFullScreen ? 18 : 6}
+                  bind:this={descTextareaRef}
+                  bind:value={description}
+                  placeholder="Escreve aqui notas ricas em Markdown, regras, segredos e descrições narrativas..."
+                  class="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-y leading-relaxed font-mono"
+                ></textarea>
+              {/if}
+
+              {#if descViewMode === 'preview' || (descViewMode === 'split' && isFullScreen)}
+                <div
+                  class="w-full {isFullScreen ? 'min-h-[300px]' : 'min-h-[140px]'} max-h-[420px] overflow-y-auto px-4 py-3 bg-zinc-950/70 border border-zinc-800 rounded-2xl text-xs leading-relaxed text-zinc-200"
+                >
+                  <!-- Formatted HTML Preview -->
+                  {@html renderMarkdown(description)}
+                </div>
+              {/if}
+            </div>
           </div>
 
           <!-- Tags & Secret Toggle -->

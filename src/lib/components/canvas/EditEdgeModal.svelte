@@ -18,6 +18,8 @@
     MoveRight,
   } from 'lucide-svelte';
 
+  import { ICON_OPTIONS } from '../../utils/icons';
+
   const edge = $derived(campaignStore.editingEdge);
   const nodes = campaignStore.nodes;
 
@@ -28,6 +30,7 @@
   let bidirectional = $state(false);
   let notes = $state('');
   let customColor = $state('#38bdf8');
+  let selectedIcon = $state('tag');
 
   // Synchronize state when editingEdge changes
   $effect(() => {
@@ -39,6 +42,7 @@
       bidirectional = Boolean(data.bidirectional);
       notes = data.notes || '';
       customColor = (data.color as string) || '#38bdf8';
+      selectedIcon = (data.icon as string) || 'tag';
     }
   });
 
@@ -158,6 +162,7 @@
         bidirectional,
         notes: notes.trim(),
         color: relationType === 'custom' ? customColor : undefined,
+        icon: selectedIcon !== 'tag' || relationType === 'custom' ? selectedIcon : undefined,
       });
       campaignStore.closeEdgeEditor();
     }
@@ -244,6 +249,45 @@
             </button>
           {/each}
         </div>
+
+        <!-- Custom Style Section (Color & Icon Picker) -->
+        {#if relationType === 'custom'}
+          <div class="mt-3 space-y-3 p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800 animate-in fade-in duration-150">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-zinc-200">Personalização da Conexão</span>
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-zinc-400">Cor da Linha:</span>
+                <input
+                  type="color"
+                  bind:value={customColor}
+                  class="w-6 h-6 rounded cursor-pointer border border-zinc-700 bg-transparent p-0"
+                />
+              </div>
+            </div>
+
+            <!-- Icon Picker -->
+            <div>
+              <span class="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                Ícone Customizado
+              </span>
+              <div class="grid grid-cols-6 sm:grid-cols-10 gap-1.5 max-h-32 overflow-y-auto p-1.5 bg-zinc-900/60 rounded-xl border border-zinc-800/80">
+                {#each ICON_OPTIONS as opt}
+                  {@const IconComp = opt.component}
+                  <button
+                    type="button"
+                    onclick={() => (selectedIcon = opt.id)}
+                    title={opt.name}
+                    class="h-8 rounded-lg flex items-center justify-center transition cursor-pointer {selectedIcon === opt.id
+                      ? 'bg-amber-500/20 border border-amber-500 text-amber-300'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-transparent'}"
+                  >
+                    <IconComp class="w-4 h-4" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+          </div>
+        {/if}
       </div>
 
       <!-- Label Input with Presets -->

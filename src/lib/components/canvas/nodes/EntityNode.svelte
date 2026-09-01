@@ -106,10 +106,27 @@
   const IconComponent = $derived(getEntityIcon(data?.icon, data?.type || data?.category));
   const isSecretNode = $derived(Boolean(data?.isSecret || data?.type === 'secret'));
 
-  // Card border styling based on Secret / Selection state
+  const isSearchActive = $derived(Boolean(campaignStore.searchQuery.trim()));
+  const matchesSearch = $derived.by(() => {
+    if (!isSearchActive) return true;
+    const query = campaignStore.searchQuery.trim().toLowerCase();
+    const titleMatch = (data?.title || '').toLowerCase().includes(query);
+    const subtitleMatch = (data?.subtitle || '').toLowerCase().includes(query);
+    const descMatch = (data?.description || '').toLowerCase().includes(query);
+    const tagsMatch = Array.isArray(data?.tags) && data.tags.some(t => t.toLowerCase().includes(query));
+    return titleMatch || subtitleMatch || descMatch || tagsMatch;
+  });
+
+  // Card border styling based on Secret / Selection / Search state
   const containerClasses = $derived.by(() => {
     let classes = 'group relative w-68 rounded-2xl border p-4 shadow-2xl backdrop-blur-md transition-all duration-200 select-none cursor-pointer ';
-    if (selected) {
+    if (isSearchActive) {
+      if (matchesSearch) {
+        classes += 'ring-2 ring-amber-400 border-amber-400 shadow-[0_0_28px_rgba(251,191,36,0.5)] z-20 scale-[1.02] ';
+      } else {
+        classes += 'opacity-30 grayscale-[40%] hover:opacity-100 transition-opacity ';
+      }
+    } else if (selected) {
       classes += 'ring-2 ring-amber-400 shadow-[0_0_24px_rgba(212,163,89,0.35)] ';
     }
     if (isSecretNode) {

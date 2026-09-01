@@ -47,8 +47,16 @@
     ChevronDown,
     FileText,
     Dices,
+    Filter,
+    Link2,
+    Users,
+    Swords,
+    EyeOff,
+    Search as SearchIcon,
+    Tag,
   } from 'lucide-svelte';
   import { get } from 'svelte/store';
+  import type { RelationType } from '../../types';
 
   // 1. Register Custom Node & Edge Types
   const nodeTypes: NodeTypes = {
@@ -68,6 +76,7 @@
 
   // Local Reactive State using Svelte 5 Runes
   let showLayoutDropdown = $state(false);
+  let showEdgeFilterDropdown = $state(false);
   let activeLayoutAlgo = $state<LayoutAlgorithm>('hierarchical');
 
   // Derive selection state
@@ -424,6 +433,121 @@
               <div>Grelha / Matriz</div>
               <div class="text-[10px] text-zinc-500">Distribuição uniforme em linhas e colunas</div>
             </div>
+          </button>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Group 2.5: Edge / Connection Type Filter Dropdown (US 148) -->
+    <div class="relative">
+      <div class="flex items-center rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl p-1">
+        <button
+          type="button"
+          onclick={() => (showEdgeFilterDropdown = !showEdgeFilterDropdown)}
+          class="px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer {campaignStore.activeEdgeFilter === 'all'
+            ? 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:text-white'
+            : 'bg-amber-500/15 border-amber-500/40 text-amber-300'}"
+          title="Filtrar Conexões Visíveis"
+        >
+          <Filter class="w-3 h-3 {campaignStore.activeEdgeFilter !== 'all' ? 'text-amber-400' : 'text-zinc-400'}" />
+          <span class="capitalize">
+            {campaignStore.activeEdgeFilter === 'all' ? 'Conexões' : `Filtro: ${campaignStore.activeEdgeFilter}`}
+          </span>
+          <ChevronDown class="w-3 h-3 text-zinc-400" />
+        </button>
+      </div>
+
+      {#if showEdgeFilterDropdown}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          onclick={() => (showEdgeFilterDropdown = false)}
+          class="fixed inset-0 z-20 cursor-default"
+        ></div>
+        <div class="absolute left-0 top-full mt-1.5 w-52 rounded-xl bg-zinc-900 border border-zinc-700/90 shadow-2xl p-1.5 z-30 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+          <div class="text-[10px] font-bold text-zinc-400 uppercase px-2 py-1 flex items-center justify-between">
+            <span>Filtro de Conexões</span>
+            {#if campaignStore.activeEdgeFilter !== 'all'}
+              <button
+                type="button"
+                onclick={() => (campaignStore.activeEdgeFilter = 'all')}
+                class="text-[10px] text-amber-400 hover:underline cursor-pointer"
+              >
+                Limpar
+              </button>
+            {/if}
+          </div>
+
+          <button
+            type="button"
+            onclick={() => { campaignStore.activeEdgeFilter = 'all'; showEdgeFilterDropdown = false; }}
+            class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition cursor-pointer {campaignStore.activeEdgeFilter === 'all' ? 'bg-zinc-800 text-amber-300 font-semibold' : 'text-zinc-300 hover:bg-zinc-800'}"
+          >
+            <div class="flex items-center gap-2">
+              <Link2 class="w-3.5 h-3.5 text-zinc-400" />
+              <span>Todas as Conexões</span>
+            </div>
+            <span class="text-[10px] text-zinc-500 font-mono">{$edgesStore.length}</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => { campaignStore.activeEdgeFilter = 'allied'; showEdgeFilterDropdown = false; }}
+            class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition cursor-pointer {campaignStore.activeEdgeFilter === 'allied' ? 'bg-emerald-500/20 text-emerald-300 font-semibold' : 'text-zinc-300 hover:bg-zinc-800'}"
+          >
+            <div class="flex items-center gap-2">
+              <Users class="w-3.5 h-3.5 text-emerald-400" />
+              <span>Aliados / Cooperação</span>
+            </div>
+            <span class="text-[10px] text-zinc-500 font-mono">{$edgesStore.filter(e => (e.data?.relationType || 'neutral') === 'allied').length}</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => { campaignStore.activeEdgeFilter = 'hostile'; showEdgeFilterDropdown = false; }}
+            class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition cursor-pointer {campaignStore.activeEdgeFilter === 'hostile' ? 'bg-rose-500/20 text-rose-300 font-semibold' : 'text-zinc-300 hover:bg-zinc-800'}"
+          >
+            <div class="flex items-center gap-2">
+              <Swords class="w-3.5 h-3.5 text-rose-400" />
+              <span>Inimigos / Hostil</span>
+            </div>
+            <span class="text-[10px] text-zinc-500 font-mono">{$edgesStore.filter(e => (e.data?.relationType || 'neutral') === 'hostile').length}</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => { campaignStore.activeEdgeFilter = 'secret'; showEdgeFilterDropdown = false; }}
+            class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition cursor-pointer {campaignStore.activeEdgeFilter === 'secret' ? 'bg-purple-500/20 text-purple-300 font-semibold' : 'text-zinc-300 hover:bg-zinc-800'}"
+          >
+            <div class="flex items-center gap-2">
+              <EyeOff class="w-3.5 h-3.5 text-purple-400" />
+              <span>Segredos / Ocultos</span>
+            </div>
+            <span class="text-[10px] text-zinc-500 font-mono">{$edgesStore.filter(e => (e.data?.relationType || 'neutral') === 'secret').length}</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => { campaignStore.activeEdgeFilter = 'investigates'; showEdgeFilterDropdown = false; }}
+            class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition cursor-pointer {campaignStore.activeEdgeFilter === 'investigates' ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'text-zinc-300 hover:bg-zinc-800'}"
+          >
+            <div class="flex items-center gap-2">
+              <SearchIcon class="w-3.5 h-3.5 text-amber-400" />
+              <span>Investiga / Pistas</span>
+            </div>
+            <span class="text-[10px] text-zinc-500 font-mono">{$edgesStore.filter(e => (e.data?.relationType || 'neutral') === 'investigates').length}</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => { campaignStore.activeEdgeFilter = 'custom'; showEdgeFilterDropdown = false; }}
+            class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition cursor-pointer {campaignStore.activeEdgeFilter === 'custom' ? 'bg-sky-500/20 text-sky-300 font-semibold' : 'text-zinc-300 hover:bg-zinc-800'}"
+          >
+            <div class="flex items-center gap-2">
+              <Tag class="w-3.5 h-3.5 text-sky-400" />
+              <span>Customizados</span>
+            </div>
+            <span class="text-[10px] text-zinc-500 font-mono">{$edgesStore.filter(e => (e.data?.relationType || 'neutral') === 'custom').length}</span>
           </button>
         </div>
       {/if}

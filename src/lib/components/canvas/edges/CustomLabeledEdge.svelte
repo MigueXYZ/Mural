@@ -157,12 +157,19 @@
     }
   });
 
-  const IconComponent = $derived(stylingConfig.icon);
+  import { getEntityIcon } from '../../../utils/icons';
+
+  const isFilteredOut = $derived(
+    campaignStore.activeEdgeFilter !== 'all' && relationType !== campaignStore.activeEdgeFilter
+  );
+
+  const CustomIcon = $derived(data?.icon ? getEntityIcon(data.icon) : null);
+  const IconComponent = $derived(CustomIcon || stylingConfig.icon);
 
   const computedStyle = $derived(
     `stroke: ${stylingConfig.strokeColor}; stroke-width: ${stylingConfig.strokeWidth}; ${
       stylingConfig.strokeDash !== 'none' ? `stroke-dasharray: ${stylingConfig.strokeDash};` : ''
-    } ${style}`
+    } ${isFilteredOut ? 'opacity: 0.08; pointer-events: none;' : ''} ${style}`
   );
 
   // 4. Interaction handlers
@@ -195,7 +202,7 @@
 <!-- Midpoint HTML Interactive Label Pill via EdgeLabelRenderer -->
 <EdgeLabelRenderer>
   <div
-    style="position: absolute; transform: translate(-50%, -50%) translate({labelX}px, {labelY}px); pointer-events: all;"
+    style="position: absolute; transform: translate(-50%, -50%) translate({labelX}px, {labelY}px); pointer-events: all; {isFilteredOut ? 'opacity: 0.08; pointer-events: none;' : ''}"
     class="nodrag nopan select-none group/edge"
   >
     <div

@@ -82,13 +82,13 @@
     }
   });
 
-  function handleFolderImport(e: Event) {
+  async function handleFolderImport(e: Event) {
     const input = e.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
       const firstPath = (input.files[0] as any).webkitRelativePath || '';
       const folderName = firstPath.split('/')[0] || 'Pasta Local';
       musicDirectoryPath = folderName;
-      audioEngine.importFromDirectory(input.files, folderName);
+      await audioEngine.importFromDirectory(input.files, folderName);
       input.value = '';
     }
   }
@@ -166,11 +166,13 @@
 
 {#if isOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
     onclick={(e) => { if (e.target === e.currentTarget) isOpen = false; }}
     role="dialog"
+    aria-modal="true"
+    tabindex="-1"
   >
     <div class="w-full max-w-2xl max-h-[90vh] bg-zinc-900 border border-zinc-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
       <!-- Modal Header -->

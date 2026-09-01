@@ -12,6 +12,7 @@ import './tier2_boundaries.test';
 import './tier3_combinations.test';
 import './tier4_scenarios.test';
 import './tier5_adversarial.test';
+import './tier6_taiga_us.test';
 
 async function main() {
   console.log('\n' + '='.repeat(80));

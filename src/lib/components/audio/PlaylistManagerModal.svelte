@@ -39,34 +39,21 @@
     newPlaylistName = '';
   }
 
-  function handleFileSelect(e: Event) {
+  async function handleFileSelect(e: Event) {
     const input = e.target as HTMLInputElement;
     if (input.files && input.files.length > 0 && activePlaylist) {
-      const newTracks: AudioTrack[] = [];
-      for (let i = 0; i < input.files.length; i++) {
-        const file = input.files[i];
-        const trackUrl = URL.createObjectURL(file);
-        const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
-        newTracks.push({
-          id: `track-${Date.now()}-${i}`,
-          title: cleanTitle,
-          artist: 'Ficheiro Local',
-          src: trackUrl,
-          category: 'music',
-        });
-      }
-      audioEngine.addTracksToPlaylist(activePlaylist.id, newTracks);
+      await audioEngine.addFilesToPlaylist(activePlaylist.id, input.files);
       input.value = '';
     }
   }
 
-  function handleFolderSelect(e: Event) {
+  async function handleFolderSelect(e: Event) {
     const input = e.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
       // Find folder name if available
       const firstPath = (input.files[0] as any).webkitRelativePath || '';
       const folderName = firstPath.split('/')[0] || 'Pasta de Músicas';
-      audioEngine.importFromDirectory(input.files, folderName);
+      await audioEngine.importFromDirectory(input.files, folderName);
       if (audioEngine.currentPlaylist) {
         selectedPlaylistId = audioEngine.currentPlaylist.id;
       }
@@ -93,10 +80,14 @@
 </script>
 
 {#if isOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
     onclick={(e) => { if (e.target === e.currentTarget) isOpen = false; }}
     role="dialog"
+    aria-modal="true"
+    tabindex="-1"
   >
     <div class="w-full max-w-3xl max-h-[85vh] bg-zinc-900 border border-zinc-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
       <!-- Modal Header -->

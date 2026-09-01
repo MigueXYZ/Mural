@@ -7,6 +7,7 @@ import type {
   EntityNodeData,
   CanvasRelationEdgeData,
   CanvasRelationEdge,
+  RelationType,
 } from '../types';
 import type { Node, Edge } from '@xyflow/svelte';
 import { writable, get } from 'svelte/store';
@@ -21,6 +22,7 @@ class CampaignStore {
   // Search & Selection State
   searchQuery = $state<string>('');
   selectedEntity = $state<EntityNodeData | null>(null);
+  activeEdgeFilter = $state<RelationType | 'all'>('all');
 
   // Node & Edge Editing Modal State
   editingNode = $state<EntityNodeData | null>(null);
