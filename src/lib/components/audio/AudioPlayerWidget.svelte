@@ -170,9 +170,9 @@
           type="range"
           min="0"
           max="1"
-          step="0.05"
-          value={audioEngine.musicVolume}
-          oninput={(e) => audioEngine.setMusicVolume(parseFloat((e.target as HTMLInputElement).value))}
+          step="0.01"
+          bind:value={audioEngine.musicVolume}
+          oninput={(e) => audioEngine.setMusicVolume(parseFloat((e.currentTarget as HTMLInputElement).value))}
           class="flex-1 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
         />
         <span class="text-[10px] text-zinc-400 font-mono w-6 text-right">
@@ -222,9 +222,9 @@
           type="range"
           min="0"
           max="1"
-          step="0.05"
-          value={audioEngine.ambienceVolume}
-          oninput={(e) => audioEngine.setAmbienceVolume(parseFloat((e.target as HTMLInputElement).value))}
+          step="0.01"
+          bind:value={audioEngine.ambienceVolume}
+          oninput={(e) => audioEngine.setAmbienceVolume(parseFloat((e.currentTarget as HTMLInputElement).value))}
           class="flex-1 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-sky-400"
         />
         <span class="text-[10px] text-zinc-400 font-mono w-6 text-right">
@@ -252,9 +252,9 @@
         type="range"
         min="0"
         max="1"
-        step="0.05"
-        value={audioEngine.masterVolume}
-        oninput={(e) => audioEngine.setMasterVolume(parseFloat((e.target as HTMLInputElement).value))}
+        step="0.01"
+        bind:value={audioEngine.masterVolume}
+        oninput={(e) => audioEngine.setMasterVolume(parseFloat((e.currentTarget as HTMLInputElement).value))}
         class="w-28 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
       />
     </div>

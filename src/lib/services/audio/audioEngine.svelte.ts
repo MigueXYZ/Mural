@@ -339,12 +339,12 @@ class AudioEngine {
 
   /**
    * Converts linear slider value (0.0 to 1.0) to perceived logarithmic loudness
-   * based on human auditory curve (power 2.2 approximation).
+   * based on human auditory curve.
    */
   private toLogarithmicGain(linear: number): number {
     const clamped = Math.max(0, Math.min(1, linear));
     if (clamped <= 0.001) return 0;
-    return Math.pow(clamped, 2.2);
+    return Math.pow(clamped, 1.5);
   }
 
   // --- Volume Calculation ---
@@ -660,6 +660,7 @@ class AudioEngine {
   setMasterVolume(volume: number) {
     this.masterVolume = Math.max(0, Math.min(1, volume));
     this.updateEffectiveVolumes();
+    this.onAudioSyncCallback?.();
     try {
       localStorage.setItem('mural_master_volume', String(this.masterVolume));
     } catch {}
@@ -668,6 +669,7 @@ class AudioEngine {
   setMusicVolume(volume: number) {
     this.musicVolume = Math.max(0, Math.min(1, volume));
     this.updateEffectiveVolumes();
+    this.onAudioSyncCallback?.();
     try {
       localStorage.setItem('mural_music_volume', String(this.musicVolume));
     } catch {}
@@ -676,11 +678,15 @@ class AudioEngine {
   setAmbienceVolume(volume: number) {
     this.ambienceVolume = Math.max(0, Math.min(1, volume));
     this.updateEffectiveVolumes();
+    try {
+      localStorage.setItem('mural_ambience_volume', String(this.ambienceVolume));
+    } catch {}
   }
 
   toggleMute() {
     this.isMuted = !this.isMuted;
     this.updateEffectiveVolumes();
+    this.onAudioSyncCallback?.();
   }
 
   // --- Playlist Management ---
