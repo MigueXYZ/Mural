@@ -20,6 +20,9 @@
   import OrdoLivePanel from './lib/components/ordo/OrdoLivePanel.svelte';
   import OrdoRoomModal from './lib/components/ordo/OrdoRoomModal.svelte';
   import { ordoP2P } from './lib/services/p2p/ordoP2PService.svelte';
+  import { storageService } from './lib/services/storage';
+  import PlayerVttView from './lib/components/vtt/PlayerVttView.svelte';
+  import GmVttPanel from './lib/components/vtt/GmVttPanel.svelte';
   import { FileText, Clock, BookOpen, Radio } from 'lucide-svelte';
 
   let activeRightTab = $state<'session' | 'clocks' | 'lore' | 'ordo'>('session');
@@ -27,9 +30,22 @@
   const clocksCount = $derived((campaignStore.campaign.clocks || []).length);
   const loreCount = $derived((campaignStore.campaign.lore || []).length);
   const ordoCount = $derived(ordoP2P.characters.length);
+
+  // Environment Sandboxing (Requirement R2):
+  // Browser is strictly locked to Player-Only VTT mode (unless developer overrides with ?mode=gm).
+  const isPlayerOnlyBrowser = $derived.by(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'gm') return false;
+    if (params.get('mode') === 'player' || params.get('player') === '1') return true;
+    return !storageService.isTauri();
+  });
 </script>
 
-{#if appState.currentView === 'menu'}
+{#if isPlayerOnlyBrowser}
+  <!-- Strict Web / Browser Player-Only Client Mode (Requirement R2) -->
+  <PlayerVttView />
+{:else if appState.currentView === 'menu'}
   <MainMenu />
 {:else}
   <div class="h-screen w-screen flex flex-col bg-[#0b0d11] text-zinc-100 overflow-hidden font-sans">
@@ -41,10 +57,12 @@
       <!-- Left Navigation Rail -->
       <NavigationSidebar />
 
-      <!-- Central View Router (Graph Canvas vs Atlas Map) -->
+      <!-- Central View Router (Graph Canvas vs Atlas Map vs Mesa Tática VTT) -->
       <main class="flex-1 relative overflow-hidden">
         {#if appState.activeTab === 'maps'}
           <AtlasView />
+        {:else if appState.activeTab === 'vtt'}
+          <GmVttPanel />
         {:else}
           <CanvasView />
         {/if}

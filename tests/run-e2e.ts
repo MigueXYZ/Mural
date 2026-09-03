@@ -15,6 +15,8 @@ import './tier5_adversarial.test';
 import './tier6_taiga_us.test';
 import './tier7_custom_calendar.test';
 import './tier8_ordo_p2p.test';
+import './tier9_tabletop_vtt.test';
+import './tier9_adversarial_security.test';
 
 async function main() {
   console.log('\n' + '='.repeat(80));
@@ -42,6 +44,8 @@ async function main() {
     tier4Fail = 0;
   let tier5Pass = 0,
     tier5Fail = 0;
+  let tier9Pass = 0,
+    tier9Fail = 0;
 
   for (const suite of results.suites) {
     const isFail = suite.failed > 0;
@@ -69,6 +73,9 @@ async function main() {
     } else if (suite.name.startsWith('Tier 5')) {
       tier5Pass += suite.passed;
       tier5Fail += suite.failed;
+    } else if (suite.name.startsWith('Tier 9')) {
+      tier9Pass += suite.passed;
+      tier9Fail += suite.failed;
     }
   }
 
@@ -101,6 +108,11 @@ async function main() {
   console.log(
     `  Tier 5 (Adversarial Coverage Hard.) : ${tier5Pass} passed, ${tier5Fail} failed (${
       tier5Fail === 0 ? 'PASS' : 'FAIL'
+    })`
+  );
+  console.log(
+    `  Tier 9 (Tabletop VTT P2P Engine)    : ${tier9Pass} passed, ${tier9Fail} failed (${
+      tier9Fail === 0 ? 'PASS' : 'FAIL'
     })`
   );
   console.log('='.repeat(80));
