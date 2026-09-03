@@ -350,8 +350,10 @@ export class VttP2PService {
         const token = this.activeScene.tokens.find((t) => t.id === tokenId);
         if (!token) return;
 
-        // Authoritative verification
-        if (!authorizeTokenMove(token, peerId, false)) {
+        const peerInfo = this.connectedPeers.find((p) => p.peerId === peerId);
+
+        // Authoritative verification with peer name and character matching
+        if (!authorizeTokenMove(token, peerId, false, peerInfo?.characterName, peerInfo?.playerName)) {
           console.warn(`[VttP2P] Unauthorized token move attempt by ${peerId} on token ${tokenId}`);
           // Send correction back to revert player position
           const conn = this.connections.get(peerId);
@@ -366,6 +368,11 @@ export class VttP2PService {
             }));
           }
           return;
+        }
+
+        // Token move authorized! Bind ownerPeerId if missing so it's permanently owned
+        if (!token.ownerPeerId) {
+          token.ownerPeerId = peerId;
         }
 
         // Update host state

@@ -203,6 +203,59 @@
     setTimeout(() => (hasCopiedCode = false), 2000);
   }
 
+  async function triggerMapUpload() {
+    // If in Tauri desktop app, use native file dialog for guaranteed OS compatibility
+    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog');
+        const selected = await open({
+          multiple: false,
+          filters: [
+            {
+              name: 'Imagens de Mapa',
+              extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'avif'],
+            },
+          ],
+        });
+
+        if (selected) {
+          const filePath = typeof selected === 'string' ? selected : (selected as any).path;
+          if (filePath) {
+            const { readFile } = await import('@tauri-apps/plugin-fs');
+            const bytes = await readFile(filePath);
+            const ext = filePath.split('.').pop()?.toLowerCase() || 'jpeg';
+            const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+            const blob = new Blob([bytes], { type: mime });
+            const dataUrl = await compressImageToDataUrl(blob, 2560, 0.82);
+
+            const img = new window.Image();
+            img.onload = () => {
+              const scene = scenes[activeSceneIndex];
+              if (scene) {
+                scene.backgroundUrl = dataUrl;
+                const fileName = filePath.replace(/^.*[\\/]/, '').replace(/\.[^/.]+$/, '');
+                scene.name = fileName || scene.name;
+                if (img.naturalWidth && img.naturalHeight) {
+                  scene.width = img.naturalWidth;
+                  scene.height = img.naturalHeight;
+                }
+                vttP2P.syncScene(scene);
+                setTimeout(() => canvasRef?.fitToScreen?.(), 60);
+              }
+            };
+            img.src = dataUrl;
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('[VttGM] Native Tauri file dialog fallback to standard input:', err);
+      }
+    }
+
+    // Fallback for browser: click hidden input
+    mapFileInput?.click();
+  }
+
   async function handleMapUpload(e: Event) {
     const target = e.target as HTMLInputElement;
     if (target.files && target.files[0]) {
@@ -452,6 +505,16 @@
         title="Configurações e Dimensões do Mapa ({localScene.width}×{localScene.height}px)"
       >
         <Sliders class="w-3.5 h-3.5" />
+      </button>
+
+      <!-- Upload Map Background Button -->
+      <button
+        type="button"
+        onclick={triggerMapUpload}
+        class="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 transition cursor-pointer shadow-sm"
+        title="Carregar Imagem de Fundo para este Mapa (PNG, JPG, WebP)"
+      >
+        <Upload class="w-3.5 h-3.5" />
       </button>
     </div>
 
@@ -945,6 +1008,19 @@
 
         <!-- Ações do Mapa -->
         <div class="pt-2 border-t border-zinc-800 space-y-2">
+          <!-- Carregar Imagem do Computador -->
+          <button
+            type="button"
+            onclick={() => {
+              isMapSettingsOpen = false;
+              triggerMapUpload();
+            }}
+            class="w-full py-2 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer border border-zinc-700/80 shadow-sm"
+          >
+            <Upload class="w-4 h-4 text-amber-400" />
+            <span>Carregar Imagem de Fundo (PC)...</span>
+          </button>
+
           {#if localScene.backgroundUrl}
             <button
               type="button"

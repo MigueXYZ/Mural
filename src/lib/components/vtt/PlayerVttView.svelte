@@ -473,7 +473,7 @@
           scene={activeScene}
           isGm={false}
           myPeerId={vttP2P.localPeerId}
-          myCharacterId={characterNameInput}
+          myCharacterId={characterNameInput || vttP2P.playerName}
           {activeTool}
           pings={vttP2P.recentPings}
           {selectedTokenId}

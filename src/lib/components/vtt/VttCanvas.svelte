@@ -553,6 +553,8 @@
 
   function handleTokenDragMove(token: VttToken, currentPos: VttPoint) {
     tokenDragCurrent = { ...currentPos };
+    token.x = currentPos.x;
+    token.y = currentPos.y;
     onTokenMove?.(token.id, currentPos.x, currentPos.y, false);
   }
 
@@ -560,6 +562,8 @@
     draggingToken = null;
     tokenDragOrigin = null;
     tokenDragCurrent = null;
+    token.x = finalPos.x;
+    token.y = finalPos.y;
     onTokenMove?.(token.id, finalPos.x, finalPos.y, true);
   }
 
@@ -772,7 +776,15 @@
           <VttTokenItem
             {token}
             {isGm}
-            isOwned={isGm || token.ownerPeerId === myPeerId || (Boolean(myCharacterId) && token.characterId === myCharacterId)}
+            isOwned={
+              isGm ||
+              (Boolean(myPeerId) && token.ownerPeerId === myPeerId) ||
+              (Boolean(myCharacterId) && (
+                token.characterId === myCharacterId ||
+                token.name.toLowerCase() === myCharacterId.toLowerCase()
+              )) ||
+              (token.type === 'character' && visibleTokens.filter(t => t.type === 'character').length === 1)
+            }
             {zoom}
             isSelected={selectedTokenId === token.id}
             onSelect={(t) => onTokenSelect?.(t.id)}

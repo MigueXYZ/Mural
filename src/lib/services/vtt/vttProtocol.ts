@@ -559,7 +559,8 @@ export function authorizeTokenMove(
   token: VttToken,
   senderPeerId: string,
   isGm: boolean,
-  playerCharacterId?: string
+  playerCharacterId?: string,
+  playerName?: string
 ): boolean {
   if (!token) return false;
   if (isGm) return true;
@@ -568,7 +569,16 @@ export function authorizeTokenMove(
     return true;
   }
 
-  if (playerCharacterId && token.characterId && token.characterId === playerCharacterId) {
+  if (playerCharacterId) {
+    if (token.characterId && token.characterId.toLowerCase() === playerCharacterId.toLowerCase()) {
+      return true;
+    }
+    if (token.name && token.name.toLowerCase() === playerCharacterId.toLowerCase()) {
+      return true;
+    }
+  }
+
+  if (playerName && token.name && token.name.toLowerCase() === playerName.toLowerCase()) {
     return true;
   }
 
