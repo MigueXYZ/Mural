@@ -9,7 +9,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { vttP2P } from '../../services/vtt/vttP2PService.svelte';
-  import { createCombatEncounter, sortCombatants } from '../../services/vtt/vttProtocol';
+  import { createCombatEncounter, sortCombatants, compressImageToDataUrl } from '../../services/vtt/vttProtocol';
   import type { VttScene, VttToken, FogAction } from '../../types/vtt';
   import VttCanvas from './VttCanvas.svelte';
   import InitiativeTracker from './InitiativeTracker.svelte';
@@ -41,6 +41,7 @@
     ChevronDown,
     MapPin,
     BoxSelect,
+    User,
   } from 'lucide-svelte';
 
   let activeTool = $state<
@@ -118,6 +119,7 @@
   let tokenMaxSan = $state(0);
   let tokenIsStealth = $state(false);
   let tokenColor = $state('#f87171');
+  let tokenImageUrl = $state<string | undefined>(undefined);
 
   // New scene form state
   let newSceneName = $state('Masmorra Subterrânea');
@@ -201,26 +203,30 @@
     setTimeout(() => (hasCopiedCode = false), 2000);
   }
 
-  function handleMapUpload(e: Event) {
+  async function handleMapUpload(e: Event) {
     const target = e.target as HTMLInputElement;
     if (target.files && target.files[0]) {
       const file = target.files[0];
-      const url = URL.createObjectURL(file);
-      const img = new window.Image();
-      img.onload = () => {
-        const scene = scenes[activeSceneIndex];
-        if (scene) {
-          scene.backgroundUrl = url;
-          scene.name = file.name.replace(/\.[^/.]+$/, '');
-          if (img.naturalWidth && img.naturalHeight) {
-            scene.width = img.naturalWidth;
-            scene.height = img.naturalHeight;
+      try {
+        const dataUrl = await compressImageToDataUrl(file, 2560, 0.82);
+        const img = new window.Image();
+        img.onload = () => {
+          const scene = scenes[activeSceneIndex];
+          if (scene) {
+            scene.backgroundUrl = dataUrl;
+            scene.name = file.name.replace(/\.[^/.]+$/, '');
+            if (img.naturalWidth && img.naturalHeight) {
+              scene.width = img.naturalWidth;
+              scene.height = img.naturalHeight;
+            }
+            vttP2P.syncScene(scene);
+            setTimeout(() => canvasRef?.fitToScreen?.(), 60);
           }
-          vttP2P.syncScene(scene);
-          setTimeout(() => canvasRef?.fitToScreen?.(), 60);
-        }
-      };
-      img.src = url;
+        };
+        img.src = dataUrl;
+      } catch (err) {
+        console.error('Falha ao processar mapa:', err);
+      }
     }
   }
 
@@ -320,6 +326,7 @@
       x: 700 + Math.random() * 100,
       y: 700 + Math.random() * 100,
       color: tokenColor,
+      imageUrl: tokenImageUrl,
       pv: { current: Number(tokenHp) || 20, max: Number(tokenMaxHp) || 20 },
       san: { current: Number(tokenSan) || 0, max: Number(tokenMaxSan) || 0 },
       isStealth: tokenIsStealth,
@@ -330,6 +337,7 @@
     vttP2P.syncScene(localScene);
     isTokenModalOpen = false;
     tokenName = 'Criatura';
+    tokenImageUrl = undefined;
   }
 
   function handleDeleteToken(id: string) {
@@ -1033,6 +1041,42 @@
               bind:value={tokenMaxHp}
               class="w-full h-8 px-2 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono"
             />
+          </div>
+        </div>
+
+        <!-- Token Portrait / Imagem do Token -->
+        <div>
+          <span class="text-zinc-400 block mb-1">Retrato / Foto do Token:</span>
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-full border-2 border-dashed border-zinc-700 bg-zinc-950 flex items-center justify-center overflow-hidden flex-shrink-0 relative">
+              {#if tokenImageUrl}
+                <img src={tokenImageUrl} alt="Token preview" class="w-full h-full object-cover" />
+              {:else}
+                <User class="w-5 h-5 text-zinc-600" />
+              {/if}
+            </div>
+            <div class="flex-1 flex flex-col gap-1">
+              <input
+                type="file"
+                accept="image/*"
+                onchange={async (e) => {
+                  const target = e.target as HTMLInputElement;
+                  if (target.files && target.files[0]) {
+                    tokenImageUrl = await compressImageToDataUrl(target.files[0], 256, 0.85);
+                  }
+                }}
+                class="text-[11px] text-zinc-400 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[11px] file:font-semibold file:bg-zinc-800 file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer"
+              />
+              {#if tokenImageUrl}
+                <button
+                  type="button"
+                  onclick={() => (tokenImageUrl = undefined)}
+                  class="text-[10px] text-rose-400 hover:text-rose-300 text-left cursor-pointer"
+                >
+                  Remover Imagem
+                </button>
+              {/if}
+            </div>
           </div>
         </div>
 

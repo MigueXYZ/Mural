@@ -170,7 +170,14 @@ export class VttP2PService {
   async joinRoom(
     roomCode: string,
     playerName: string,
-    characterInfo?: { characterId?: string; characterName?: string; color?: string }
+    characterInfo?: {
+      characterId?: string;
+      characterName?: string;
+      color?: string;
+      imageUrl?: string;
+      pv?: { current: number; max: number };
+      san?: { current: number; max: number };
+    }
   ): Promise<void> {
     this.destroy();
 
@@ -217,6 +224,9 @@ export class VttP2PService {
               characterId: characterInfo?.characterId,
               characterName: characterInfo?.characterName,
               color: this.playerColor,
+              imageUrl: characterInfo?.imageUrl,
+              pv: characterInfo?.pv,
+              san: characterInfo?.san,
             });
 
             resolve();
@@ -276,7 +286,7 @@ export class VttP2PService {
 
         this.connectedPeers = [...this.connectedPeers.filter((p) => p.peerId !== peerId), peerInfo];
 
-        // Find matching pawn
+        // Find matching pawn or auto-spawn one for the player
         let boundTokenId: string | undefined = undefined;
         if (this.activeScene) {
           const match = this.activeScene.tokens.find(
@@ -285,6 +295,26 @@ export class VttP2PService {
           if (match) {
             match.ownerPeerId = peerId;
             boundTokenId = match.id;
+          } else {
+            // Automatically spawn token for the player
+            const newPlayerToken: VttToken = {
+              id: `token-${peerId}`,
+              name: payload?.characterName || payload?.playerName || 'Jogador',
+              characterId: payload?.characterId || `char-${peerId}`,
+              ownerPeerId: peerId,
+              type: 'character',
+              size: 'medio',
+              x: Math.round(this.activeScene.width / 2) + Math.round((Math.random() - 0.5) * 150),
+              y: Math.round(this.activeScene.height / 2) + Math.round((Math.random() - 0.5) * 150),
+              color: payload?.color || '#38bdf8',
+              imageUrl: payload?.imageUrl,
+              pv: { current: payload?.pv?.current || 20, max: payload?.pv?.max || 20 },
+              san: { current: payload?.san?.current || 30, max: payload?.san?.max || 30 },
+              isStealth: false,
+              conditions: [],
+            };
+            this.activeScene.tokens.push(newPlayerToken);
+            boundTokenId = newPlayerToken.id;
           }
         }
 
@@ -344,6 +374,22 @@ export class VttP2PService {
 
         // Broadcast to authorized peers only (anti-cheat stealth protection)
         this.broadcastTokenMove(payload, token, peerId);
+        break;
+      }
+
+      case 'VTT_TOKEN_UPSERT': {
+        const payload = envelope.payload as { token: VttToken };
+        if (payload?.token && this.activeScene) {
+          const token = payload.token;
+          token.ownerPeerId = peerId;
+          const idx = this.activeScene.tokens.findIndex((t) => t.id === token.id);
+          if (idx >= 0) {
+            this.activeScene.tokens[idx] = token;
+          } else {
+            this.activeScene.tokens.push(token);
+          }
+          this.syncScene(this.activeScene);
+        }
         break;
       }
 
@@ -500,6 +546,20 @@ export class VttP2PService {
       }
     } else {
       this.sendToHost('VTT_TOKEN_MOVE', payload);
+    }
+  }
+
+  sendTokenUpsert(token: VttToken) {
+    if (this.isHost && this.activeScene) {
+      const idx = this.activeScene.tokens.findIndex((t) => t.id === token.id);
+      if (idx >= 0) {
+        this.activeScene.tokens[idx] = token;
+      } else {
+        this.activeScene.tokens.push(token);
+      }
+      this.syncScene(this.activeScene);
+    } else {
+      this.sendToHost('VTT_TOKEN_UPSERT', { token });
     }
   }
 

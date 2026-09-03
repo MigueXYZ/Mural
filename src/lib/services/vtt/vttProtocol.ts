@@ -785,3 +785,47 @@ export function formatDiceResult(result: DiceRollResult): string {
   const critBadge = result.isCritical ? ' [CRÍTICO!]' : result.isFumble ? ' [DESASTRE!]' : '';
   return `[${result.senderName}] ${result.expression} = [${diceResults}]${modStr} -> Total: ${result.total}${critBadge}`;
 }
+
+/**
+ * Compresses an image File or Blob into a lightweight base64 Data URL
+ * suitable for real-time WebRTC P2P DataChannel transmission.
+ */
+export function compressImageToDataUrl(
+  file: File | Blob,
+  maxDim = 2560,
+  quality = 0.82
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onerror = () => resolve(reader.result as string);
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(reader.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}

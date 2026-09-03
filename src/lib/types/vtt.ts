@@ -435,6 +435,7 @@ export interface DiceRollResult {
 export type VTTMessageType =
   | 'VTT_SCENE_SYNC'
   | 'VTT_TOKEN_MOVE'
+  | 'VTT_TOKEN_UPSERT'
   | 'VTT_FOG_UPDATE'
   | 'VTT_MAP_PING'
   | 'VTT_INITIATIVE_UPDATE'
