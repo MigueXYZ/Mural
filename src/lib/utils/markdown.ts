@@ -37,6 +37,13 @@ export function renderMarkdown(markdown: string): string {
   html = html.replace(/```([\s\S]*?)```/gim, '<pre class="p-3 my-2 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-mono text-amber-300 overflow-x-auto"><code>$1</code></pre>');
   html = html.replace(/`([^`]+)`/gim, '<code class="px-1.5 py-0.5 rounded bg-zinc-950 border border-zinc-800 text-[11px] font-mono text-amber-300">$1</code>');
 
+  // Wikilinks: [[Target]] or [[Target|Alias]]
+  html = html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, alias) => {
+    const label = alias || target;
+    const cleanTarget = target.trim();
+    return `<span class="wikilink-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-medium hover:bg-amber-500/25 transition cursor-pointer" data-target="${cleanTarget}">🔗 ${label.trim()}</span>`;
+  });
+
   // Linebreaks
   html = html.replace(/\n\n+/g, '<br/><br/>');
   html = html.replace(/(?<!<\/h1>|<\/h2>|<\/h3>|<\/blockquote>|<\/pre>|<\/li>)\n/g, '<br/>');

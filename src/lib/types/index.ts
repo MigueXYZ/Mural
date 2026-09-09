@@ -59,11 +59,52 @@ export interface AudioPlaylist {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Entity Node Types
+// 3. Entity Node Types & Combat Statblocks
 // ---------------------------------------------------------------------------
 
 export type EntityType = 'npc' | 'faction' | 'location' | 'secret' | 'clue' | 'note' | 'table';
 export type EntityCategory = EntityType;
+
+export interface CombatAttack {
+  id: string;
+  name: string; // e.g. "Faca", "Revólver .38", "Garras de Sangue"
+  test: string; // e.g. "2d20, 19", "2d20+5"
+  damage: string; // e.g. "1d4+1 corte", "2d6 balístico"
+}
+
+export interface CombatRitual {
+  id: string;
+  name: string; // e.g. "Descarnar", "Perturbação"
+  element?: string; // e.g. "Sangue", "Energia", "Morte", "Conhecimento"
+  costPe?: number;
+  dt?: number;
+  description?: string;
+}
+
+export interface CombatStats {
+  pvCurrent?: number;
+  pvMax?: number;
+  peCurrent?: number;
+  peMax?: number;
+  sanCurrent?: number;
+  sanMax?: number;
+  defense?: number;
+  displacement?: string; // e.g. "9m"
+  attributes?: Record<string, number>; // AGI, FOR, INT, PRE, VIG
+  attacks?: CombatAttack[];
+  rituals?: CombatRitual[];
+  extraNotes?: string;
+}
+
+export interface CampaignFileNode {
+  id: string;
+  name: string;
+  type: 'file' | 'folder';
+  parentId?: string | null;
+  nodeId?: string; // Linked EntityNode ID
+  isMissionFolder?: boolean;
+  color?: string;
+}
 
 export interface EntityNodeData extends Record<string, unknown> {
   id: string;
@@ -79,6 +120,12 @@ export interface EntityNodeData extends Record<string, unknown> {
   icon?: string; // Lucide icon identifier (e.g. 'user', 'shield', 'skull', 'sword', 'file-text', 'dices')
   color?: string; // Primary accent color hex (e.g. '#d4a359', '#f87171')
   colorTheme?: string; // Alias for color
+
+  // File Explorer & Document Editor Extensions
+  folderId?: string | null;
+  content?: string; // Full Markdown content
+  combatStats?: CombatStats; // RPG Statblock
+  wikilinks?: string[]; // Referenced entity titles / IDs
 
   // Attached Rich Context & Tables
   tables?: EncounterTable[];
@@ -299,6 +346,8 @@ export interface CampaignData {
   playlists?: AudioPlaylist[];
   settings?: CampaignSettings;
   customCalendar?: CustomCalendarConfig;
+  fileSystem?: CampaignFileNode[];
+  activeScopeFolderId?: string | null;
 }
 
 export interface CampaignSummary {

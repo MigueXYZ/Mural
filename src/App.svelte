@@ -23,6 +23,7 @@
   import { storageService } from './lib/services/storage';
   import PlayerVttView from './lib/components/vtt/PlayerVttView.svelte';
   import GmVttPanel from './lib/components/vtt/GmVttPanel.svelte';
+  import FileExplorerView from './lib/components/explorer/FileExplorerView.svelte';
   import { FileText, Clock, BookOpen, Radio } from 'lucide-svelte';
 
   let activeRightTab = $state<'session' | 'clocks' | 'lore' | 'ordo'>('session');
@@ -57,12 +58,14 @@
       <!-- Left Navigation Rail -->
       <NavigationSidebar />
 
-      <!-- Central View Router (Graph Canvas vs Atlas Map vs Mesa Tática VTT) -->
+      <!-- Central View Router (Graph Canvas vs Atlas Map vs Mesa Tática VTT vs Dossiê Documentos) -->
       <main class="flex-1 relative overflow-hidden">
         {#if appState.activeTab === 'maps'}
           <AtlasView />
         {:else if appState.activeTab === 'vtt'}
           <GmVttPanel />
+        {:else if appState.activeTab === 'docs'}
+          <FileExplorerView />
         {:else}
           <CanvasView />
         {/if}

@@ -1,6 +1,6 @@
 import type { Node, Edge } from '@xyflow/svelte';
 
-export type LayoutAlgorithm = 'hierarchical' | 'force' | 'grid';
+export type LayoutAlgorithm = 'hierarchical' | 'force' | 'grid' | 'cluster';
 export type LayoutDirection = 'TB' | 'LR' | 'BT' | 'RL';
 
 export interface LayoutOptions {
@@ -22,7 +22,7 @@ const DEFAULT_SPACING_Y = 90;
  * Main auto-layout service entry point.
  * Repositions nodes according to the selected algorithm without modifying edge connections.
  */
-export function autoLayoutNodes<T extends Record<string, unknown> = Record<string, unknown>>(
+export function autoLayoutNodes<T extends Record<string, unknown>>(
   nodes: Node<T>[],
   edges: Edge[],
   options: LayoutOptions = {}
@@ -47,6 +47,9 @@ export function autoLayoutNodes<T extends Record<string, unknown> = Record<strin
 
   let layoutedNodes: Node<T>[];
   switch (algorithm) {
+    case 'cluster':
+      layoutedNodes = clusterInvestigationLayout(nodes, edges, options);
+      break;
     case 'force':
       layoutedNodes = forceDirectedLayout(nodes, edges, options);
       break;
@@ -522,7 +525,218 @@ function gridLayout<T extends Record<string, unknown>>(
 }
 
 // ---------------------------------------------------------------------------
-// 4. BULK ALIGNMENT & DISTRIBUTION UTILITIES
+// 4. CLUSTER & INVESTIGATION DISTRICTS ALGORITHM
+// ---------------------------------------------------------------------------
+
+function clusterInvestigationLayout<T extends Record<string, unknown>>(
+  nodes: Node<T>[],
+  edges: Edge[],
+  options: LayoutOptions
+): Node<T>[] {
+  const nodeWidth = options.nodeWidth || DEFAULT_NODE_WIDTH;
+  const nodeHeight = options.nodeHeight || DEFAULT_NODE_HEIGHT;
+  const spacingX = options.spacingX || 80;
+  const spacingY = options.spacingY || 100;
+
+  const nodeMap = new Map<string, Node<T>>();
+  nodes.forEach((n) => nodeMap.set(n.id, n));
+
+  // Build edge adjacency
+  const edgeNeighbors = new Map<string, Set<string>>();
+  nodes.forEach((n) => edgeNeighbors.set(n.id, new Set()));
+  edges.forEach((e) => {
+    if (nodeMap.has(e.source) && nodeMap.has(e.target)) {
+      edgeNeighbors.get(e.source)?.add(e.target);
+      edgeNeighbors.get(e.target)?.add(e.source);
+    }
+  });
+
+  // Identify Clues / Notes that are directly attached to a single target
+  const isClueOrNote = (n: Node<T>) => {
+    const data: any = n.data || {};
+    const cat = data.category || data.type || '';
+    return cat === 'clue' || cat === 'note' || n.id.startsWith('clue-') || n.id.startsWith('note-');
+  };
+
+  const attachedClues = new Map<string, string[]>(); // hostNodeId -> clueIds
+  const clueSet = new Set<string>();
+
+  nodes.forEach((n) => {
+    if (isClueOrNote(n)) {
+      const neighbors = Array.from(edgeNeighbors.get(n.id) || []);
+      if (neighbors.length > 0) {
+        const host = neighbors.find((h) => !isClueOrNote(nodeMap.get(h)!)) || neighbors[0];
+        if (!attachedClues.has(host)) {
+          attachedClues.set(host, []);
+        }
+        attachedClues.get(host)!.push(n.id);
+        clueSet.add(n.id);
+      }
+    }
+  });
+
+  const primaryNodes = nodes.filter((n) => !clueSet.has(n.id));
+
+  // Determine group key for each node
+  const getGroupKey = (n: Node<T>): string => {
+    const data: any = n.data || {};
+    const tags: string[] = Array.isArray(data.tags) ? data.tags : [];
+    const cat = data.category || data.type || '';
+
+    // Check prominent tags
+    for (const tag of tags) {
+      const lower = tag.toLowerCase();
+      if (lower.includes('ordo') || lower.includes('ordem')) return 'ordem';
+      if (lower.includes('elenismo') || lower.includes('culto') || lower.includes('luz carnal')) return 'elenismo';
+      if (lower.includes('barcelos') || lower.includes('caso 2') || lower.includes('porto')) return 'barcelos';
+      if (lower.includes('vítima') || lower.includes('vitima') || lower.includes('desaparecido')) return 'vitimas';
+      if (lower.includes('perafita') || lower.includes('vila')) return 'perafita';
+    }
+
+    // Check connected faction
+    const neighbors = Array.from(edgeNeighbors.get(n.id) || []);
+    for (const neighborId of neighbors) {
+      const neighbor = nodeMap.get(neighborId);
+      const nData: any = neighbor?.data || {};
+      if (nData.category === 'faction' || nData.type === 'faction') {
+        const fTitle = (nData.title || '').toLowerCase();
+        if (fTitle.includes('ordo') || fTitle.includes('ordem')) return 'ordem';
+        if (fTitle.includes('elenismo') || fTitle.includes('culto')) return 'elenismo';
+        return `faction-${neighborId}`;
+      }
+    }
+
+    // Category fallback
+    if (cat === 'faction') return `faction-${n.id}`;
+    if (cat === 'secret') return 'secrets';
+    if (cat === 'location') return 'locations';
+    if (cat === 'npc') return 'npcs';
+    return 'misc';
+  };
+
+  const clusters = new Map<string, Node<T>[]>();
+  primaryNodes.forEach((n) => {
+    const key = getGroupKey(n);
+    if (!clusters.has(key)) clusters.set(key, []);
+    clusters.get(key)!.push(n);
+  });
+
+  // Sort clusters logically: Ordem first (investigators), Perafita & Vítimas in the middle, Elenismo & Ameaças on the right
+  const preferredOrder = ['ordem', 'perafita', 'vitimas', 'locations', 'npcs', 'elenismo', 'barcelos', 'secrets', 'misc'];
+  const sortedClusterKeys = Array.from(clusters.keys()).sort((a, b) => {
+    const idxA = preferredOrder.indexOf(a);
+    const idxB = preferredOrder.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  const positionedNodes: Node<T>[] = [];
+  const placedIds = new Set<string>();
+
+  const clusterCols = sortedClusterKeys.length <= 4 ? 2 : 3;
+  const colWidths = new Array(clusterCols).fill(0);
+  const colHeights = new Array(clusterCols).fill(100);
+
+  const clusterLayouts: Array<{
+    key: string;
+    items: Node<T>[];
+    width: number;
+    height: number;
+    colIndex: number;
+  }> = [];
+
+  sortedClusterKeys.forEach((key, cIdx) => {
+    const items = clusters.get(key)!;
+    const innerCols = items.length <= 2 ? items.length : 2;
+    const innerRows = Math.ceil(items.length / innerCols);
+
+    let maxClueExtension = 0;
+    items.forEach((n) => {
+      const clues = attachedClues.get(n.id) || [];
+      if (clues.length > 0) {
+        maxClueExtension = Math.max(maxClueExtension, nodeWidth + 50);
+      }
+    });
+
+    const clusterW = innerCols * (nodeWidth + spacingX) + maxClueExtension;
+    const clusterH = innerRows * (nodeHeight + spacingY);
+    const colIndex = cIdx % clusterCols;
+
+    clusterLayouts.push({
+      key,
+      items,
+      width: clusterW,
+      height: clusterH,
+      colIndex,
+    });
+
+    if (clusterW > colWidths[colIndex]) {
+      colWidths[colIndex] = clusterW;
+    }
+  });
+
+  const colStartsX = [100];
+  for (let c = 1; c < clusterCols; c++) {
+    colStartsX.push(colStartsX[c - 1] + colWidths[c - 1] + 160);
+  }
+
+  clusterLayouts.forEach(({ items, colIndex, height }) => {
+    const startX = colStartsX[colIndex];
+    const startY = colHeights[colIndex];
+    const innerCols = items.length <= 2 ? items.length : 2;
+
+    items.forEach((node, idx) => {
+      const col = idx % innerCols;
+      const row = Math.floor(idx / innerCols);
+      const posX = startX + col * (nodeWidth + spacingX);
+      const posY = startY + row * (nodeHeight + spacingY);
+
+      positionedNodes.push({
+        ...node,
+        position: { x: Math.round(posX), y: Math.round(posY) },
+      });
+      placedIds.add(node.id);
+
+      const clues = attachedClues.get(node.id) || [];
+      clues.forEach((clueId, clueIdx) => {
+        const clueNode = nodeMap.get(clueId);
+        if (clueNode && !placedIds.has(clueId)) {
+          positionedNodes.push({
+            ...clueNode,
+            position: {
+              x: Math.round(posX + nodeWidth + 40),
+              y: Math.round(posY + clueIdx * (nodeHeight + 30)),
+            },
+          });
+          placedIds.add(clueId);
+        }
+      });
+    });
+
+    colHeights[colIndex] += height + 160;
+  });
+
+  const remaining = nodes.filter((n) => !placedIds.has(n.id));
+  if (remaining.length > 0) {
+    const maxY = Math.max(...colHeights);
+    remaining.forEach((node, idx) => {
+      positionedNodes.push({
+        ...node,
+        position: {
+          x: Math.round(100 + (idx % 3) * (nodeWidth + spacingX)),
+          y: Math.round(maxY + Math.floor(idx / 3) * (nodeHeight + spacingY)),
+        },
+      });
+    });
+  }
+
+  return positionedNodes;
+}
+
+// ---------------------------------------------------------------------------
+// 5. BULK ALIGNMENT & DISTRIBUTION UTILITIES
 // ---------------------------------------------------------------------------
 
 export function alignNodes<T extends Record<string, unknown>>(

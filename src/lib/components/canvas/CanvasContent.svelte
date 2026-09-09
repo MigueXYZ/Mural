@@ -52,6 +52,8 @@
     EyeOff,
     Search as SearchIcon,
     Tag,
+    Boxes,
+    Folder,
   } from 'lucide-svelte';
   import { get } from 'svelte/store';
   import type { RelationType } from '../../types';
@@ -84,6 +86,18 @@
   // Derive selection state
   const selectedNodes = $derived($nodesStore.filter((n) => n.selected));
   const selectedCount = $derived(selectedNodes.length);
+
+  // Available folders for Canvas Scoping
+  const availableFolders = $derived(
+    (campaignStore.fileSystem || []).filter((f) => f.type === 'folder')
+  );
+
+  function handleScopeChange(folderId: string) {
+    campaignStore.setCanvasScope(folderId);
+    setTimeout(() => {
+      fitView({ duration: 400, padding: 0.2 });
+    }, 50);
+  }
 
   // 2. Quick Entity Creation Handler
   function addQuickEntity(type: EntityCategory) {
@@ -384,6 +398,22 @@
       </button>
     </div>
 
+    <!-- Group 1.5: Canvas Scope Selector (Global vs Mission Folder) -->
+    <div class="flex items-center rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl px-2 py-1 gap-1.5">
+      <Folder class="w-3.5 h-3.5 text-amber-400 shrink-0" />
+      <select
+        value={campaignStore.activeScopeFolderId}
+        onchange={(e) => handleScopeChange((e.target as HTMLSelectElement).value)}
+        class="bg-transparent text-xs font-medium text-zinc-200 pr-1 py-0.5 focus:outline-none cursor-pointer max-w-[140px] truncate"
+        title="Filtrar Mural por Pasta ou Missão"
+      >
+        <option value="all" class="bg-zinc-900 text-zinc-100">Mural: Geral (Tudo)</option>
+        {#each availableFolders as folder}
+          <option value={folder.id} class="bg-zinc-900 text-zinc-100">Mural: {folder.name}</option>
+        {/each}
+      </select>
+    </div>
+
     <!-- Group 2: Auto-Layout Engine Dropdown -->
     <div class="relative">
       <div class="flex items-center rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl p-1">
@@ -463,6 +493,18 @@
             <div>
               <div>Grelha / Matriz</div>
               <div class="text-[10px] text-zinc-500">Distribuição uniforme em linhas e colunas</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => applyLayout('cluster')}
+            class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer {activeLayoutAlgo === 'cluster' ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'text-zinc-300 hover:bg-zinc-800'}"
+          >
+            <Boxes class="w-3.5 h-3.5 text-amber-400" />
+            <div>
+              <div>Núcleos de Investigação</div>
+              <div class="text-[10px] text-zinc-500">Agrupa por facções, suspeitos e locais temáticos</div>
             </div>
           </button>
         </div>
@@ -712,6 +754,7 @@
     panOnDrag={true}
     selectionKey="Shift"
     nodesDraggable={true}
+    onlyRenderVisibleElements={true}
     fitView
     class="bg-[#0b0d11]"
   >

@@ -1,10 +1,11 @@
 <script lang="ts">
   import { appState } from '../../stores/appState.svelte';
   import { audioEngine } from '../../services/audio/audioEngine.svelte';
-  import { LayoutGrid, Map, Settings, Music, Swords } from 'lucide-svelte';
+  import { LayoutGrid, FolderTree, Map, Settings, Music, Swords } from 'lucide-svelte';
 
   const navItems = [
     { id: 'board' as const, label: 'Quadro de Relações (Mural)', icon: LayoutGrid },
+    { id: 'docs' as const, label: 'Dossiê & Ficheiros (Explorador)', icon: FolderTree },
     { id: 'maps' as const, label: 'Mapas & Atlas', icon: Map },
     { id: 'vtt' as const, label: 'Mesa Tática (VTT)', icon: Swords },
   ];

@@ -5,7 +5,7 @@ import { storageService } from '../services/storage';
 
 class AppState {
   currentView = $state<'menu' | 'campaign'>('menu');
-  activeTab = $state<'board' | 'maps' | 'vtt'>('board');
+  activeTab = $state<'board' | 'maps' | 'vtt' | 'docs'>('board');
   isSettingsOpen = $state<boolean>(false);
   campaigns = $state<CampaignData[]>(sampleCampaigns);
   searchFilter = $state<string>('');

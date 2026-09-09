@@ -207,7 +207,7 @@
     class="nodrag nopan select-none group/edge"
   >
     <div
-      class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border backdrop-blur-md transition-all duration-150 {stylingConfig.badgeBg} {stylingConfig.badgeBorder} {stylingConfig.glowClass} {selected ? 'ring-2 ring-amber-400/80 scale-105' : 'hover:scale-105'}"
+      class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-md transition-all duration-150 {stylingConfig.badgeBg} {stylingConfig.badgeBorder} {stylingConfig.glowClass} {selected ? 'ring-2 ring-amber-400/80 scale-105' : 'hover:scale-105'}"
     >
       <!-- Clickable Label & Category Icon -->
       <button

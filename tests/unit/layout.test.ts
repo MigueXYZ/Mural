@@ -86,6 +86,35 @@ function runTests() {
   assert(gridResult.nodes[1].position.x > gridResult.nodes[0].position.x, 'Second grid node placed in column 2');
 
   // -------------------------------------------------------------------------
+  // 3.5. Auto-Layout: Cluster Investigation Layout Tests
+  // -------------------------------------------------------------------------
+  console.log('\n[Suite 4.5] Cluster Investigation Layout (Districts & Narrative Clusters)');
+  const clusterNodes: Node<EntityNodeData>[] = [
+    { id: 'f1', type: 'entityNode', position: { x: 0, y: 0 }, data: { id: 'f1', type: 'faction', title: 'Ordo Realitas', tags: ['Ordo Realitas'], description: '' } },
+    { id: 'n1', type: 'entityNode', position: { x: 0, y: 0 }, data: { id: 'n1', type: 'npc', title: 'Agente Silva', tags: ['Ordo Realitas'], description: '' } },
+    { id: 'f2', type: 'entityNode', position: { x: 0, y: 0 }, data: { id: 'f2', type: 'faction', title: 'Culto da Luz', tags: ['Culto'], description: '' } },
+    { id: 'n2', type: 'entityNode', position: { x: 0, y: 0 }, data: { id: 'n2', type: 'npc', title: 'Cultista', tags: ['Culto'], description: '' } },
+    { id: 'c1', type: 'entityNode', position: { x: 0, y: 0 }, data: { id: 'c1', type: 'clue', category: 'clue', title: 'Diário Secreto', description: '' } },
+  ];
+  const clusterEdges: Edge<CanvasRelationEdgeData>[] = [
+    { id: 'e-f1-n1', source: 'n1', target: 'f1', data: { label: 'membro', relationType: 'allied' } },
+    { id: 'e-f2-n2', source: 'n2', target: 'f2', data: { label: 'membro', relationType: 'allied' } },
+    { id: 'e-c1-n2', source: 'c1', target: 'n2', data: { label: 'pertence a', relationType: 'investigates' } },
+  ];
+
+  const clusterResult = autoLayoutNodes(clusterNodes, clusterEdges, { algorithm: 'cluster' });
+  assert(clusterResult.nodes.length === 5, 'Cluster layout positions all 5 nodes');
+  assert(clusterResult.nodes.every(n => Number.isFinite(n.position.x) && Number.isFinite(n.position.y)), 'All cluster nodes have finite coordinates');
+
+  const f1Pos = clusterResult.nodes.find(n => n.id === 'f1')!.position;
+  const f2Pos = clusterResult.nodes.find(n => n.id === 'f2')!.position;
+  assert(f1Pos.x !== f2Pos.x || f1Pos.y !== f2Pos.y, 'Distinct faction clusters are separated in distinct coordinates');
+
+  const c1Pos = clusterResult.nodes.find(n => n.id === 'c1')!.position;
+  const n2PosCluster = clusterResult.nodes.find(n => n.id === 'n2')!.position;
+  assert(c1Pos.x > n2PosCluster.x, 'Attached clue (c1) is placed adjacent to host node (n2)');
+
+  // -------------------------------------------------------------------------
   // 4. Bulk Alignment & Distribution Tests
   // -------------------------------------------------------------------------
   console.log('\n[Suite 5] Bulk Alignment & Distribution Utilities');

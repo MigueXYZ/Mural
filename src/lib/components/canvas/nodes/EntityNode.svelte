@@ -119,7 +119,7 @@
 
   // Card border styling based on Secret / Selection / Search state
   const containerClasses = $derived.by(() => {
-    let classes = 'group relative w-68 rounded-2xl border p-4 shadow-2xl backdrop-blur-md transition-all duration-200 select-none cursor-pointer ';
+    let classes = 'group relative w-68 rounded-2xl border p-4 shadow-xl bg-zinc-900/98 transition-[border-color,box-shadow,opacity] duration-150 select-none cursor-pointer ';
     if (isSearchActive) {
       if (matchesSearch) {
         classes += 'ring-2 ring-amber-400 border-amber-400 shadow-[0_0_28px_rgba(251,191,36,0.5)] z-20 scale-[1.02] ';
@@ -132,7 +132,7 @@
     if (isSecretNode) {
       classes += 'border-rose-900/70 bg-gradient-to-b from-zinc-950 via-zinc-900 to-rose-950/30 hover:border-rose-600/80';
     } else {
-      classes += 'border-zinc-800/90 bg-zinc-900/95 hover:border-zinc-600';
+      classes += 'border-zinc-800/90 hover:border-zinc-600';
     }
     return classes;
   });

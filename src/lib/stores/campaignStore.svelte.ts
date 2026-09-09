@@ -10,6 +10,9 @@ import type {
   RelationType,
   CustomCalendarConfig,
   MoonPhaseResult,
+  CampaignFileNode,
+  CombatStats,
+  EntityCategory,
 } from '../types';
 import type { Node, Edge } from '@xyflow/svelte';
 import { writable, get } from 'svelte/store';
@@ -38,6 +41,11 @@ class CampaignStore {
   // Node & Edge Editing Modal State
   editingNode = $state<EntityNodeData | null>(null);
   editingEdge = $state<CanvasRelationEdge | null>(null);
+
+  // File Explorer & Mission Scoping Reactive State
+  fileSystem = $state<CampaignFileNode[]>([]);
+  activeScopeFolderId = $state<string | 'all'>('all');
+  selectedFileId = $state<string | null>(null);
 
   // Custom Calendar Modal State (US 154)
   isCalendarOpen = $state<boolean>(false);
@@ -195,6 +203,21 @@ class CampaignStore {
       },
     }));
     this.edges.set(JSON.parse(JSON.stringify(normalizedEdges)));
+
+    // File System & Mission Scoping Initialization
+    this.fileSystem = data.fileSystem && data.fileSystem.length > 0 ? JSON.parse(JSON.stringify(data.fileSystem)) : [];
+    this.activeScopeFolderId = data.activeScopeFolderId || 'all';
+    this.selectedFileId = null;
+
+    if (this.fileSystem.length === 0) {
+      this.initializeDefaultFileSystem(this.campaign.nodes || []);
+    }
+
+    // Apply active canvas scope if non-default
+    if (this.activeScopeFolderId !== 'all') {
+      this.setCanvasScope(this.activeScopeFolderId);
+    }
+
     this.searchQuery = '';
     this.selectedEntity = null;
     this.editingNode = null;
@@ -207,12 +230,215 @@ class CampaignStore {
   }
 
   exportCurrentCampaign(): CampaignData {
+    this.syncCurrentNodesToMaster();
     return {
       ...JSON.parse(JSON.stringify(this.campaign)),
-      nodes: JSON.parse(JSON.stringify(get(this.nodes))),
-      edges: JSON.parse(JSON.stringify(get(this.edges))),
+      nodes: JSON.parse(JSON.stringify(this.campaign.nodes || [])),
+      edges: JSON.parse(JSON.stringify(this.campaign.edges || [])),
+      fileSystem: JSON.parse(JSON.stringify(this.fileSystem)),
+      activeScopeFolderId: this.activeScopeFolderId,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Canvas Scoping & Master Synchronization
+  // ---------------------------------------------------------------------------
+
+  syncCurrentNodesToMaster() {
+    const currentList = get(this.nodes);
+    const posMap = new Map(currentList.map((n) => [n.id, n.position]));
+    const dataMap = new Map(currentList.map((n) => [n.id, n.data]));
+
+    this.campaign.nodes = (this.campaign.nodes || []).map((node) => {
+      const p = posMap.get(node.id);
+      const d = dataMap.get(node.id);
+      return {
+        ...node,
+        position: p ? { ...p } : node.position,
+        data: d ? { ...d } : node.data,
+      };
+    });
+
+    const currentEdges = get(this.edges);
+    const edgeMap = new Map(currentEdges.map((e) => [e.id, e]));
+    this.campaign.edges = (this.campaign.edges || []).map((e) => {
+      return edgeMap.get(e.id) || e;
+    });
+  }
+
+  setCanvasScope(folderId: string | 'all') {
+    this.syncCurrentNodesToMaster();
+    this.activeScopeFolderId = folderId;
+
+    if (folderId === 'all') {
+      this.nodes.set(JSON.parse(JSON.stringify(this.campaign.nodes || [])));
+      this.edges.set(JSON.parse(JSON.stringify(this.campaign.edges || [])));
+      return;
+    }
+
+    // Collect all descendant folder IDs recursively
+    const targetFolderIds = new Set<string>([folderId]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const item of this.fileSystem) {
+        if (
+          item.type === 'folder' &&
+          item.parentId &&
+          targetFolderIds.has(item.parentId) &&
+          !targetFolderIds.has(item.id)
+        ) {
+          targetFolderIds.add(item.id);
+          added = true;
+        }
+      }
+    }
+
+    // Collect all node IDs belonging to these folders
+    const scopedNodeIds = new Set<string>();
+    for (const item of this.fileSystem) {
+      if (item.type === 'file' && item.nodeId && item.parentId && targetFolderIds.has(item.parentId)) {
+        scopedNodeIds.add(item.nodeId);
+      }
+    }
+
+    for (const n of this.campaign.nodes || []) {
+      if (n.data?.folderId && targetFolderIds.has(n.data.folderId as string)) {
+        scopedNodeIds.add(n.id);
+      }
+    }
+
+    const filteredNodes = (this.campaign.nodes || []).filter((n) => scopedNodeIds.has(n.id));
+    const filteredEdges = (this.campaign.edges || []).filter(
+      (e) => scopedNodeIds.has(e.source) && scopedNodeIds.has(e.target)
+    );
+
+    this.nodes.set(JSON.parse(JSON.stringify(filteredNodes)));
+    this.edges.set(JSON.parse(JSON.stringify(filteredEdges)));
+  }
+
+  initializeDefaultFileSystem(nodes: Node<EntityNodeData>[]) {
+    const defaultFolders: CampaignFileNode[] = [];
+    const files: CampaignFileNode[] = [];
+
+    const hasPerafita = nodes.some((n) => {
+      const t = (n.data?.tags || []).concat([n.data?.title || '', n.data?.subtitle || '']).join(' ').toLowerCase();
+      return t.includes('perafita') || t.includes('caso 1');
+    });
+
+    const hasBarcelos = nodes.some((n) => {
+      const t = (n.data?.tags || []).concat([n.data?.title || '', n.data?.subtitle || '']).join(' ').toLowerCase();
+      return t.includes('barcelos') || t.includes('caso 2') || t.includes('porto');
+    });
+
+    let folderCaso1Id: string | null = null;
+    let folderCaso2Id: string | null = null;
+    let folderOrdemId: string | null = null;
+    let folderElenismoId: string | null = null;
+    let folderGeralId: string | null = null;
+
+    if (hasPerafita || hasBarcelos) {
+      folderCaso1Id = 'folder-caso-1';
+      defaultFolders.push({
+        id: folderCaso1Id,
+        name: 'Caso 1: O Mistério de Perafita',
+        type: 'folder',
+        parentId: null,
+        isMissionFolder: true,
+        color: '#38bdf8',
+      });
+
+      folderCaso2Id = 'folder-caso-2';
+      defaultFolders.push({
+        id: folderCaso2Id,
+        name: 'Caso 2: A Célula de Barcelos',
+        type: 'folder',
+        parentId: null,
+        isMissionFolder: true,
+        color: '#a855f7',
+      });
+
+      folderOrdemId = 'folder-ordem';
+      defaultFolders.push({
+        id: folderOrdemId,
+        name: 'Ordo Realitas (Comando & Base)',
+        type: 'folder',
+        parentId: null,
+        color: '#22c55e',
+      });
+
+      folderElenismoId = 'folder-elenismo';
+      defaultFolders.push({
+        id: folderElenismoId,
+        name: 'A Seita do Elenismo',
+        type: 'folder',
+        parentId: null,
+        color: '#f87171',
+      });
+
+      defaultFolders.push({
+        id: 'folder-caso-3',
+        name: 'Caso 3: (Planeamento)',
+        type: 'folder',
+        parentId: null,
+        isMissionFolder: true,
+      });
+
+      defaultFolders.push({
+        id: 'folder-caso-4',
+        name: 'Caso 4: (Planeamento)',
+        type: 'folder',
+        parentId: null,
+        isMissionFolder: true,
+      });
+
+      defaultFolders.push({
+        id: 'folder-caso-5',
+        name: 'Caso 5: O Clímax Final',
+        type: 'folder',
+        parentId: null,
+        isMissionFolder: true,
+      });
+    } else {
+      folderGeralId = 'folder-geral';
+      defaultFolders.push({
+        id: folderGeralId,
+        name: 'Dossiê & Ficheiros',
+        type: 'folder',
+        parentId: null,
+      });
+    }
+
+    // Assign nodes to folders
+    nodes.forEach((n) => {
+      const t = (n.data?.tags || []).concat([n.data?.title || '', n.data?.subtitle || '', n.data?.description || '']).join(' ').toLowerCase();
+      let parentId: string | null = folderGeralId;
+
+      if (folderCaso1Id) {
+        if (t.includes('caso 2') || t.includes('barcelos') || t.includes('porto')) {
+          parentId = folderCaso2Id;
+        } else if (t.includes('ordo realitas') || t.includes('sr. veríssimo') || t.includes('verissimo') || t.includes('sintra')) {
+          parentId = folderOrdemId;
+        } else if (t.includes('elenismo') && (t.includes('anjo') || t.includes('1174') || t.includes('ines') || t.includes('inês'))) {
+          parentId = folderElenismoId;
+        } else {
+          parentId = folderCaso1Id;
+        }
+      }
+
+      n.data.folderId = parentId;
+      files.push({
+        id: `file-${n.id}`,
+        name: n.data?.title || 'Sem Título',
+        type: 'file',
+        parentId,
+        nodeId: n.id,
+      });
+    });
+
+    this.fileSystem = [...defaultFolders, ...files];
+    this.campaign.fileSystem = this.fileSystem;
   }
 
   // ---------------------------------------------------------------------------
@@ -311,6 +537,21 @@ class CampaignStore {
         return node;
       })
     );
+
+    // Sync master nodes
+    const masterNode = (this.campaign.nodes || []).find((n) => n.id === id);
+    if (masterNode) {
+      masterNode.data = { ...masterNode.data, ...partial };
+    }
+
+    // Sync file system item name if title changed
+    if (partial.title) {
+      const file = this.fileSystem.find((f) => f.nodeId === id);
+      if (file) {
+        file.name = partial.title;
+      }
+    }
+
     this.markDirty();
   }
 
@@ -318,8 +559,15 @@ class CampaignStore {
     this.recordSnapshot();
     this.nodes.update((list) => list.filter((n) => n.id !== id));
     this.edges.update((list) => list.filter((e) => e.source !== id && e.target !== id));
+    this.campaign.nodes = (this.campaign.nodes || []).filter((n) => n.id !== id);
+    this.campaign.edges = (this.campaign.edges || []).filter((e) => e.source !== id && e.target !== id);
+    this.fileSystem = this.fileSystem.filter((f) => f.nodeId !== id);
+
     if (this.editingNode?.id === id) {
       this.editingNode = null;
+    }
+    if (this.selectedFileId && this.selectedFileId === `file-${id}`) {
+      this.selectedFileId = null;
     }
     this.markDirty();
   }
@@ -330,6 +578,10 @@ class CampaignStore {
     const set = new Set(ids);
     this.nodes.update((list) => list.filter((n) => !set.has(n.id)));
     this.edges.update((list) => list.filter((e) => !set.has(e.source) && !set.has(e.target)));
+    this.campaign.nodes = (this.campaign.nodes || []).filter((n) => !set.has(n.id));
+    this.campaign.edges = (this.campaign.edges || []).filter((e) => !set.has(e.source) && !set.has(e.target));
+    this.fileSystem = this.fileSystem.filter((f) => !f.nodeId || !set.has(f.nodeId));
+
     if (this.editingNode && set.has(this.editingNode.id)) {
       this.editingNode = null;
     }
@@ -358,6 +610,16 @@ class CampaignStore {
     };
 
     this.nodes.update((nodes) => [...nodes, duplicatedNode]);
+    this.campaign.nodes = [...(this.campaign.nodes || []), duplicatedNode];
+
+    this.fileSystem.push({
+      id: `file-${newId}`,
+      name: duplicatedNode.data.title,
+      type: 'file',
+      parentId: (existing.data?.folderId as string) || null,
+      nodeId: newId,
+    });
+
     this.markDirty();
   }
 
@@ -384,9 +646,11 @@ class CampaignStore {
 
   addEntityNode(data: Partial<EntityNodeData>, x = 300, y = 200) {
     this.recordSnapshot();
-    const id = `node-${Date.now()}`;
+    const id = (data.id as string) || `node-${Date.now()}`;
     const entityType = data.type || data.category || 'npc';
     const isSecret = Boolean(data.isSecret || entityType === 'secret');
+    const folderId = this.activeScopeFolderId !== 'all' ? this.activeScopeFolderId : ((data.folderId as string) || null);
+
     const newNode: Node<EntityNodeData> = {
       id,
       type: 'entityNode',
@@ -404,13 +668,324 @@ class CampaignStore {
         revealed: !isSecret,
         tags: data.tags || [],
         icon: data.icon || (entityType === 'npc' ? 'user' : entityType === 'faction' ? 'shield' : entityType === 'location' ? 'map-pin' : entityType === 'note' ? 'file-text' : entityType === 'table' ? 'dices' : 'skull'),
+        folderId,
+        content: data.content || '',
+        combatStats: data.combatStats,
+        wikilinks: data.wikilinks || [],
         tables: data.tables || [],
         notes: data.notes || [],
       },
     };
 
     this.nodes.update((nodes) => [...nodes, newNode]);
+    this.campaign.nodes = [...(this.campaign.nodes || []), newNode];
+
+    this.fileSystem.push({
+      id: `file-${id}`,
+      name: newNode.data.title,
+      type: 'file',
+      parentId: folderId,
+      nodeId: id,
+    });
+
     this.markDirty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // File Explorer & Document Management Methods
+  // ---------------------------------------------------------------------------
+
+  createFolder(name: string, parentId: string | null = null, isMission = false, color?: string): string {
+    this.recordSnapshot();
+    const id = `folder-${Date.now()}`;
+    const newFolder: CampaignFileNode = {
+      id,
+      name: name.trim() || 'Nova Pasta',
+      type: 'folder',
+      parentId,
+      isMissionFolder: isMission,
+      color,
+    };
+    this.fileSystem = [...this.fileSystem, newFolder];
+    this.campaign.fileSystem = this.fileSystem;
+    this.markDirty();
+    return id;
+  }
+
+  createFile(
+    name: string,
+    parentId: string | null = null,
+    category: EntityCategory = 'note',
+    content = '',
+    createCanvasNode = true
+  ): string {
+    this.recordSnapshot();
+    const nodeId = `node-${Date.now()}`;
+    const fileId = `file-${nodeId}`;
+
+    if (createCanvasNode) {
+      this.addEntityNode(
+        {
+          id: nodeId,
+          title: name.trim() || 'Novo Ficheiro',
+          type: category,
+          category,
+          description: content.slice(0, 160),
+          content,
+          folderId: parentId,
+        },
+        200 + Math.random() * 200,
+        200 + Math.random() * 200
+      );
+    } else {
+      const newFile: CampaignFileNode = {
+        id: fileId,
+        name: name.trim() || 'Novo Ficheiro',
+        type: 'file',
+        parentId,
+      };
+      this.fileSystem = [...this.fileSystem, newFile];
+      this.campaign.fileSystem = this.fileSystem;
+      this.markDirty();
+    }
+
+    this.selectedFileId = fileId;
+    return fileId;
+  }
+
+  renameFileOrFolder(id: string, newName: string) {
+    const cleanName = newName.trim();
+    if (!cleanName) return;
+
+    this.recordSnapshot();
+    const item = this.fileSystem.find((f) => f.id === id);
+    if (!item) return;
+
+    item.name = cleanName;
+    if (item.type === 'file' && item.nodeId) {
+      this.updateNodeData(item.nodeId, { title: cleanName });
+    }
+    this.fileSystem = [...this.fileSystem];
+    this.campaign.fileSystem = this.fileSystem;
+    this.markDirty();
+  }
+
+  moveFileOrFolder(id: string, newParentId: string | null) {
+    if (id === newParentId) return;
+    this.recordSnapshot();
+
+    const item = this.fileSystem.find((f) => f.id === id);
+    if (!item) return;
+
+    item.parentId = newParentId;
+    if (item.type === 'file' && item.nodeId) {
+      this.updateNodeData(item.nodeId, { folderId: newParentId });
+    }
+    this.fileSystem = [...this.fileSystem];
+    this.campaign.fileSystem = this.fileSystem;
+    this.markDirty();
+  }
+
+  deleteFileOrFolder(id: string, deleteAssociatedNode = true) {
+    this.recordSnapshot();
+    const item = this.fileSystem.find((f) => f.id === id);
+    if (!item) return;
+
+    // If folder, find all descendants recursively
+    const toDeleteIds = new Set<string>([id]);
+    const nodeIdsToDelete = new Set<string>();
+
+    if (item.type === 'folder') {
+      let added = true;
+      while (added) {
+        added = false;
+        for (const f of this.fileSystem) {
+          if (f.parentId && toDeleteIds.has(f.parentId) && !toDeleteIds.has(f.id)) {
+            toDeleteIds.add(f.id);
+            if (f.nodeId) nodeIdsToDelete.add(f.nodeId);
+            added = true;
+          }
+        }
+      }
+    } else if (item.nodeId) {
+      nodeIdsToDelete.add(item.nodeId);
+    }
+
+    this.fileSystem = this.fileSystem.filter((f) => !toDeleteIds.has(f.id));
+    this.campaign.fileSystem = this.fileSystem;
+
+    if (deleteAssociatedNode && nodeIdsToDelete.size > 0) {
+      this.deleteNodes(Array.from(nodeIdsToDelete));
+    }
+
+    if (this.selectedFileId && toDeleteIds.has(this.selectedFileId)) {
+      this.selectedFileId = null;
+    }
+
+    this.markDirty();
+  }
+
+  openFile(fileId: string) {
+    this.selectedFileId = fileId;
+    const item = this.fileSystem.find((f) => f.id === fileId);
+    if (item && item.nodeId) {
+      const node = (this.campaign.nodes || []).find((n) => n.id === item.nodeId);
+      if (node) {
+        this.selectedEntity = node.data;
+      }
+    }
+  }
+
+  syncWikilinksForNode(nodeId: string, content: string, combatStats?: CombatStats) {
+    this.recordSnapshot();
+    this.syncCurrentNodesToMaster();
+
+    const matches = Array.from(content.matchAll(/\[\[(.*?)\]\]/g));
+    const extractedTitles = matches.map((m) => m[1].trim()).filter(Boolean);
+    const targetSet = new Set(extractedTitles.map((t) => t.toLowerCase()));
+
+    const allNodes = this.campaign.nodes || [];
+    const sourceNode = allNodes.find((n) => n.id === nodeId);
+    if (!sourceNode) return;
+
+    sourceNode.data.content = content;
+    if (combatStats) {
+      sourceNode.data.combatStats = { ...combatStats };
+    }
+    sourceNode.data.wikilinks = extractedTitles;
+
+    const targetNodes = allNodes.filter(
+      (n) => n.id !== nodeId && (targetSet.has((n.data?.title || '').toLowerCase()) || targetSet.has(n.id.toLowerCase()))
+    );
+
+    const targetNodeIds = new Set(targetNodes.map((n) => n.id));
+
+    const currentEdges = this.campaign.edges || [];
+    targetNodes.forEach((targetNode) => {
+      const exists = currentEdges.some(
+        (e) => (e.source === nodeId && e.target === targetNode.id) || (e.source === targetNode.id && e.target === nodeId)
+      );
+
+      if (!exists) {
+        const edgeId = `edge-wikilink-${nodeId}-${targetNode.id}`;
+        const newEdge: Edge<CanvasRelationEdgeData> = {
+          id: edgeId,
+          source: nodeId,
+          target: targetNode.id,
+          type: 'customLabeledEdge',
+          data: {
+            label: 'menciona',
+            relationType: 'investigates',
+            pathType: 'smoothstep',
+            bidirectional: false,
+            notes: 'Ligação gerada por [[wikilink]]',
+          },
+        };
+        this.campaign.edges.push(newEdge);
+      }
+    });
+
+    // Prune removed wikilink edges
+    this.campaign.edges = (this.campaign.edges || []).filter((e) => {
+      if (e.source === nodeId && (e.id.startsWith(`edge-wikilink-${nodeId}-`) || e.data?.notes === 'Ligação gerada por [[wikilink]]')) {
+        return targetNodeIds.has(e.target);
+      }
+      return true;
+    });
+
+    this.nodes.update((list) =>
+      list.map((n) => {
+        if (n.id === nodeId) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              content,
+              combatStats: combatStats || n.data.combatStats,
+              wikilinks: extractedTitles,
+            },
+          };
+        }
+        return n;
+      })
+    );
+
+    if (this.activeScopeFolderId === 'all') {
+      this.edges.set(JSON.parse(JSON.stringify(this.campaign.edges)));
+    } else {
+      this.setCanvasScope(this.activeScopeFolderId);
+    }
+
+    this.markDirty();
+  }
+
+  exportToObsidianVault(): Array<{ path: string; content: string }> {
+    const files: Array<{ path: string; content: string }> = [];
+    const folderPathMap = new Map<string, string>();
+
+    const getFolderPath = (folderId: string | null | undefined): string => {
+      if (!folderId) return '';
+      if (folderPathMap.has(folderId)) return folderPathMap.get(folderId)!;
+      const folder = this.fileSystem.find((f) => f.id === folderId);
+      if (!folder) return '';
+      const parent = getFolderPath(folder.parentId);
+      const cleanName = folder.name.replace(/[\\/:*?"<>|]/g, '_');
+      const full = parent ? `${parent}/${cleanName}` : cleanName;
+      folderPathMap.set(folderId, full);
+      return full;
+    };
+
+    this.fileSystem.forEach((item) => {
+      if (item.type === 'file') {
+        const folderPath = getFolderPath(item.parentId);
+        const cleanName = item.name.replace(/[\\/:*?"<>|]/g, '_');
+        const filePath = folderPath ? `${folderPath}/${cleanName}.md` : `${cleanName}.md`;
+
+        const node = item.nodeId ? (this.campaign.nodes || []).find((n) => n.id === item.nodeId) : null;
+        let md = '';
+
+        if (node) {
+          md += '---\n';
+          md += `id: "${node.id}"\n`;
+          md += `title: "${node.data.title || item.name}"\n`;
+          md += `type: "${node.data.type || node.data.category || 'note'}"\n`;
+          if (node.data.subtitle) md += `subtitle: "${node.data.subtitle}"\n`;
+          if (node.data.tags && node.data.tags.length > 0) {
+            md += `tags: [${node.data.tags.map((t) => `"${t}"`).join(', ')}]\n`;
+          }
+          if (node.data.isSecret) md += `isSecret: true\n`;
+          if (node.data.color) md += `color: "${node.data.color}"\n`;
+          md += '---\n\n';
+
+          if (node.data.description) {
+            md += `> ${node.data.description.split('\n').join('\n> ')}\n\n`;
+          }
+
+          if (node.data.combatStats) {
+            const cs = node.data.combatStats;
+            md += '### Ficha de Combate\n';
+            if (cs.pvMax) md += `- **PV**: ${cs.pvCurrent || cs.pvMax}/${cs.pvMax}\n`;
+            if (cs.peMax) md += `- **PE**: ${cs.peCurrent || cs.peMax}/${cs.peMax}\n`;
+            if (cs.defense) md += `- **Defesa**: ${cs.defense}\n`;
+            if (cs.displacement) md += `- **Deslocamento**: ${cs.displacement}\n`;
+            if (cs.attributes) {
+              md += `- **Atributos**: ` + Object.entries(cs.attributes).map(([k, v]) => `${k} ${v}`).join(' | ') + '\n';
+            }
+            md += '\n';
+          }
+
+          if (node.data.content) {
+            md += node.data.content;
+          }
+        } else {
+          md = `# ${item.name}\n\n`;
+        }
+
+        files.push({ path: filePath, content: md });
+      }
+    });
+
+    return files;
   }
 
   // ---------------------------------------------------------------------------

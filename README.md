@@ -68,9 +68,11 @@ npm run tauri dev
 
 ---
 
-## 📁 Estrutura do Projeto
+## 📁 Estrutura & Documentação do Projeto
 
-Para detalhes aprofundados sobre arquitetura, contratos de tipos TypeScript, modelos de dados e roadmap de desenvolvimento, consulta o ficheiro [`context_ai.md`](./context_ai.md).
+- 📘 [Nova Arquitetura de Dossiê, File Explorer & Performance](./docs/NOVA_ARQUITETURA_EXPLORER_E_MURAL.md)
+- 💾 [Especificação do Formato de Ficheiro `.mural`](./docs/FORMATO_FICHEIRO_MURAL.md)
+- 🧠 [Contexto Global de Engenharia & Roadmap](./context_ai.md)
 
 ---
 

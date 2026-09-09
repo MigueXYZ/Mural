@@ -17,6 +17,7 @@ import './tier7_custom_calendar.test';
 import './tier8_ordo_p2p.test';
 import './tier9_tabletop_vtt.test';
 import './tier9_adversarial_security.test';
+import './tier10_file_explorer.test';
 
 async function main() {
   console.log('\n' + '='.repeat(80));
