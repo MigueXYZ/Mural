@@ -44,6 +44,8 @@
     AlignStartHorizontal,
     AlignHorizontalDistributeCenter,
     Trash2,
+    Pencil,
+    Copy,
     ChevronDown,
     FileText,
     Dices,
@@ -79,13 +81,49 @@
   const edgesStore = campaignStore.edges;
 
   // Svelte Flow flow control instance
-  const { fitView, zoomIn, zoomOut, setZoom } = useSvelteFlow();
+  const { fitView, zoomIn, zoomOut, setZoom, screenToFlowPosition } = useSvelteFlow();
 
   // Local Reactive State using Svelte 5 Runes
+  let showAddMenu = $state(false);
   let showLayoutDropdown = $state(false);
   let showEdgeFilterDropdown = $state(false);
   let showUiScaleMenu = $state(false);
   let activeLayoutAlgo = $state<LayoutAlgorithm>('hierarchical');
+  let scanToast = $state<string | null>(null);
+  let scanToastTimeout: any = null;
+
+  function handleScanWikilinks() {
+    const result = campaignStore.scanAllWikilinkConnections();
+    if (scanToastTimeout) clearTimeout(scanToastTimeout);
+    if (result.created > 0) {
+      scanToast = `✨ ${result.created} novas conexões criadas a partir de [[wikilinks]]! (${result.totalFound} referências encontradas)`;
+    } else if (result.totalFound > 0) {
+      scanToast = `ℹ️ Todas as conexões de [[wikilinks]] (${result.totalFound} encontradas) já estão no mural.`;
+    } else {
+      scanToast = `🔍 Nenhuma sintaxe [[nome_nota]] encontrada nas notas.`;
+    }
+    scanToastTimeout = setTimeout(() => {
+      scanToast = null;
+    }, 4500);
+  }
+  let contextMenu = $state<{
+    show: boolean;
+    x: number;
+    y: number;
+    flowX: number;
+    flowY: number;
+    nodeId?: string;
+  }>({
+    show: false,
+    x: 0,
+    y: 0,
+    flowX: 0,
+    flowY: 0,
+  });
+
+  const targetContextMenuNode = $derived(
+    contextMenu.nodeId ? $nodesStore.find((n) => n.id === contextMenu.nodeId) : null
+  );
 
   // Derive selection state
   const selectedNodes = $derived($nodesStore.filter((n) => n.selected));
@@ -103,8 +141,79 @@
     }, 50);
   }
 
+  // Canvas Drag & Drop handlers for dragging files from Dossiê & Notas onto the canvas
+  function handleCanvasDragOver(e: DragEvent) {
+    if (e.dataTransfer?.types.includes('application/mural-file-id')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  function handleCanvasDrop(e: DragEvent) {
+    const fileId = e.dataTransfer?.getData('application/mural-file-id');
+    if (!fileId) return;
+
+    e.preventDefault();
+
+    let dropFlowX = 280;
+    let dropFlowY = 180;
+    if (typeof screenToFlowPosition === 'function') {
+      try {
+        const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        dropFlowX = Math.round(pos.x);
+        dropFlowY = Math.round(pos.y);
+      } catch (err) {
+        console.warn('Failed to calculate drop position:', err);
+      }
+    }
+
+    const fsItem = (campaignStore.fileSystem || []).find((f) => f.id === fileId);
+    if (!fsItem) return;
+
+    if (fsItem.nodeId) {
+      // The file already has an associated node. Check if it's currently on the board
+      const existingNode = get(nodesStore).find((n) => n.id === fsItem.nodeId);
+      if (existingNode) {
+        // Move existing node to drop position
+        nodesStore.update((list) =>
+          list.map((n) =>
+            n.id === fsItem.nodeId
+              ? { ...n, position: { x: dropFlowX - 140, y: dropFlowY - 50 } }
+              : n
+          )
+        );
+        const master = (campaignStore.campaign.nodes || []).find((n) => n.id === fsItem.nodeId);
+        if (master) {
+          master.position = { x: dropFlowX - 140, y: dropFlowY - 50 };
+        }
+        campaignStore.markDirty();
+      } else {
+        // Node exists in master campaign (or hidden by scope), bring it into active canvas
+        const master = (campaignStore.campaign.nodes || []).find((n) => n.id === fsItem.nodeId);
+        if (master) {
+          master.position = { x: dropFlowX - 140, y: dropFlowY - 50 };
+          nodesStore.update((list) => [...list, master]);
+          campaignStore.markDirty();
+        }
+      }
+    } else {
+      // Item has no node yet (e.g. folder or bare file), create an entity on the canvas
+      const category: EntityCategory = fsItem.type === 'folder' ? 'faction' : 'note';
+      campaignStore.addEntityNode(
+        {
+          title: fsItem.name,
+          category,
+          type: category,
+          folderId: fsItem.parentId,
+        },
+        dropFlowX - 140,
+        dropFlowY - 50
+      );
+    }
+  }
+
   // 2. Quick Entity Creation Handler
-  function addQuickEntity(type: EntityCategory) {
+  function addQuickEntity(type: EntityCategory, pos?: { x: number; y: number }) {
     const titles: Record<EntityCategory, string> = {
       npc: 'Novo NPC',
       faction: 'Nova Facção',
@@ -133,9 +242,9 @@
       table: '#d4a359',
     };
 
-    // Stagger spawn coordinates near center
-    const x = 280 + (Math.random() * 120 - 60);
-    const y = 180 + (Math.random() * 120 - 60);
+    // Stagger spawn coordinates near center or use specific position
+    const x = pos !== undefined ? pos.x : 280 + (Math.random() * 120 - 60);
+    const y = pos !== undefined ? pos.y : 180 + (Math.random() * 120 - 60);
 
     const initialTables =
       type === 'table'
@@ -174,6 +283,62 @@
       x,
       y
     );
+  }
+
+  // 2.5. Canvas Context Menu Handlers
+  function handleCanvasContextMenu(e: MouseEvent) {
+    const target = e.target as HTMLElement | null;
+    // Do not hijack right clicks in inputs, textareas or contenteditables
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) {
+      return;
+    }
+    // Do not show canvas menu if clicked on top toolbars, minimap, or controls
+    if (target?.closest('.canvas-toolbar, .svelte-flow__minimap, .svelte-flow__controls')) {
+      return;
+    }
+
+    e.preventDefault();
+
+    showAddMenu = false;
+    showLayoutDropdown = false;
+    showEdgeFilterDropdown = false;
+    showUiScaleMenu = false;
+
+    let flowX = 280;
+    let flowY = 180;
+    if (typeof screenToFlowPosition === 'function') {
+      try {
+        const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        flowX = Math.round(pos.x);
+        flowY = Math.round(pos.y);
+      } catch (err) {
+        console.warn('Failed to calculate flow position:', err);
+      }
+    }
+
+    const nodeEl = target?.closest('.svelte-flow__node') as HTMLElement | null;
+    const targetNodeId = nodeEl?.getAttribute('data-id') || undefined;
+
+    const menuWidth = 210;
+    const menuHeight = targetNodeId ? 290 : 250;
+    const clampedX = Math.min(e.clientX, window.innerWidth - menuWidth - 12);
+    const clampedY = Math.min(e.clientY, window.innerHeight - menuHeight - 12);
+
+    contextMenu = {
+      show: true,
+      x: Math.max(12, clampedX),
+      y: Math.max(12, clampedY),
+      flowX,
+      flowY,
+      nodeId: targetNodeId,
+    };
+  }
+
+  function createEntityFromContextMenu(type: EntityCategory) {
+    const spawnX = Math.round(contextMenu.flowX - 100);
+    const spawnY = Math.round(contextMenu.flowY - 30);
+    addQuickEntity(type, { x: spawnX, y: spawnY });
+    contextMenu.show = false;
   }
 
   // 3. Typed Connection Lifecycle Handler
@@ -241,14 +406,19 @@
     const result = autoLayoutNodes(currentNodes, currentEdges, {
       algorithm,
       direction,
-      nodeWidth: 260,
-      nodeHeight: 140,
-      spacingX: 70,
-      spacingY: 100,
-      iterations: 100,
+      nodeWidth: 280,
+      nodeHeight: 300,
+      spacingX: 100,
+      spacingY: 130,
+      iterations: 120,
     });
 
+    campaignStore.recordSnapshot();
     nodesStore.set(result.nodes);
+    edgesStore.set(result.edges);
+    campaignStore.campaign.nodes = result.nodes;
+    campaignStore.campaign.edges = result.edges;
+    campaignStore.markDirty();
 
     // Smoothly animate viewport to fit the freshly organized graph
     setTimeout(() => {
@@ -313,6 +483,18 @@
 
     if (isInput) return;
 
+    if (event.key === 'Escape') {
+      if (contextMenu.show) {
+        contextMenu.show = false;
+        event.preventDefault();
+        return;
+      }
+      showAddMenu = false;
+      showLayoutDropdown = false;
+      showEdgeFilterDropdown = false;
+      showUiScaleMenu = false;
+    }
+
     if (event.key === 'Delete' || event.key === 'Backspace') {
       const currentNodes = get(nodesStore);
       const currentEdges = get(edgesStore);
@@ -352,75 +534,111 @@
 
 <svelte:window onkeydown={handleKeyDown} />
 
-<div class="w-full h-full bg-[#0b0d11] relative overflow-hidden select-none">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="w-full h-full bg-[#0b0d11] relative overflow-hidden select-none"
+  oncontextmenu={handleCanvasContextMenu}
+  ondragover={handleCanvasDragOver}
+  ondrop={handleCanvasDrop}
+>
   <!-- Top Floating Master Toolbar -->
   <div
-    class="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 max-w-[calc(100%-24px)]"
+    class="canvas-toolbar absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 max-w-[calc(100%-24px)]"
     style="zoom: var(--ui-scale, 1); transform-origin: top left;"
   >
-    <!-- Group 1: Entity Creation Buttons -->
-    <div class="flex items-center gap-1 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl">
-      <span class="text-[10px] font-bold text-zinc-500 uppercase px-1.5 hidden sm:inline">Adicionar:</span>
+    <!-- Group 1: Add Entity Dropdown Menu -->
+    <div class="relative">
+      <div class="flex items-center rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl p-1">
+        <button
+          type="button"
+          onclick={() => (showAddMenu = !showAddMenu)}
+          class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+          title="Adicionar Nova Entidade ao Quadro"
+        >
+          <Plus class="w-3.5 h-3.5 text-amber-400" />
+          <span>Adicionar</span>
+          <ChevronDown class="w-3 h-3 text-amber-400/80 transition-transform duration-150 {showAddMenu ? 'rotate-180' : ''}" />
+        </button>
+      </div>
 
-      <button
-        type="button"
-        onclick={() => addQuickEntity('npc')}
-        class="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-        title="Adicionar Personagem / NPC"
-      >
-        <User class="w-3 h-3" />
-        <span>+ NPC</span>
-      </button>
+      <!-- Add Menu Dropdown -->
+      {#if showAddMenu}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          onclick={() => (showAddMenu = false)}
+          class="fixed inset-0 z-20 cursor-default"
+        ></div>
+        <div class="absolute left-0 top-full mt-1.5 w-48 rounded-xl bg-zinc-900 border border-zinc-700/90 shadow-2xl p-1.5 z-30 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+          <div class="text-[10px] font-bold text-zinc-400 uppercase px-2 py-1">Adicionar ao Mural</div>
 
-      <button
-        type="button"
-        onclick={() => addQuickEntity('faction')}
-        class="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-        title="Adicionar Facção / Organização"
-      >
-        <Shield class="w-3 h-3" />
-        <span>+ Facção</span>
-      </button>
+          <button
+            type="button"
+            onclick={() => { addQuickEntity('npc'); showAddMenu = false; }}
+            class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-amber-300 hover:bg-amber-500/15 group"
+          >
+            <div class="w-5 h-5 rounded-md bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+              <User class="w-3 h-3 text-amber-400" />
+            </div>
+            <div class="font-medium">+ NPC</div>
+          </button>
 
-      <button
-        type="button"
-        onclick={() => addQuickEntity('location')}
-        class="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-        title="Adicionar Local / Região"
-      >
-        <MapPin class="w-3 h-3" />
-        <span>+ Local</span>
-      </button>
+          <button
+            type="button"
+            onclick={() => { addQuickEntity('faction'); showAddMenu = false; }}
+            class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-purple-300 hover:bg-purple-500/15 group"
+          >
+            <div class="w-5 h-5 rounded-md bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shrink-0">
+              <Shield class="w-3 h-3 text-purple-400" />
+            </div>
+            <div class="font-medium">+ Facção</div>
+          </button>
 
-      <button
-        type="button"
-        onclick={() => addQuickEntity('secret')}
-        class="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-        title="Adicionar Pista / Segredo Oculto"
-      >
-        <Skull class="w-3 h-3" />
-        <span>+ Segredo</span>
-      </button>
+          <button
+            type="button"
+            onclick={() => { addQuickEntity('location'); showAddMenu = false; }}
+            class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-sky-300 hover:bg-sky-500/15 group"
+          >
+            <div class="w-5 h-5 rounded-md bg-sky-500/10 border border-sky-500/30 flex items-center justify-center shrink-0">
+              <MapPin class="w-3 h-3 text-sky-400" />
+            </div>
+            <div class="font-medium">+ Local</div>
+          </button>
 
-      <button
-        type="button"
-        onclick={() => addQuickEntity('note')}
-        class="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-        title="Adicionar Nota / Documento de Lore"
-      >
-        <FileText class="w-3 h-3" />
-        <span>+ Nota</span>
-      </button>
+          <button
+            type="button"
+            onclick={() => { addQuickEntity('secret'); showAddMenu = false; }}
+            class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-rose-300 hover:bg-rose-500/15 group"
+          >
+            <div class="w-5 h-5 rounded-md bg-rose-500/10 border border-rose-500/30 flex items-center justify-center shrink-0">
+              <Skull class="w-3 h-3 text-rose-400" />
+            </div>
+            <div class="font-medium">+ Segredo</div>
+          </button>
 
-      <button
-        type="button"
-        onclick={() => addQuickEntity('table')}
-        class="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-        title="Adicionar Tabela de Encontros / Dados"
-      >
-        <Dices class="w-3 h-3" />
-        <span>+ Tabela</span>
-      </button>
+          <button
+            type="button"
+            onclick={() => { addQuickEntity('note'); showAddMenu = false; }}
+            class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-zinc-300 hover:bg-zinc-800 group"
+          >
+            <div class="w-5 h-5 rounded-md bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
+              <FileText class="w-3 h-3 text-zinc-400" />
+            </div>
+            <div class="font-medium">+ Nota</div>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => { addQuickEntity('table'); showAddMenu = false; }}
+            class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-amber-300 hover:bg-amber-500/15 group"
+          >
+            <div class="w-5 h-5 rounded-md bg-amber-500/15 border border-amber-500/40 flex items-center justify-center shrink-0">
+              <Dices class="w-3 h-3 text-amber-400" />
+            </div>
+            <div class="font-medium">+ Tabela</div>
+          </button>
+        </div>
+      {/if}
     </div>
 
     <!-- Group 1.5: Canvas Scope Selector (Global vs Mission Folder) -->
@@ -647,6 +865,21 @@
             </div>
             <span class="text-[10px] text-zinc-500 font-mono">{$edgesStore.filter(e => (e.data?.relationType || 'neutral') === 'custom').length}</span>
           </button>
+
+          <div class="h-px bg-zinc-800 my-1"></div>
+
+          <button
+            type="button"
+            onclick={() => { showEdgeFilterDropdown = false; handleScanWikilinks(); }}
+            class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-amber-300 hover:bg-amber-500/15 group"
+            title="Procura sintaxe [[nome_nota]] no texto e cria ligações automáticas"
+          >
+            <Sparkles class="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <div class="flex-1">
+              <div class="font-medium">Escanear [[Wikilinks]]</div>
+              <div class="text-[9px] text-zinc-500">Conectar notas do Obsidian</div>
+            </div>
+          </button>
         </div>
       {/if}
     </div>
@@ -711,7 +944,7 @@
 
   <!-- Top-Right Floating Viewport Controls -->
   <div
-    class="absolute top-3 right-3 z-10 flex items-center gap-1 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl"
+    class="canvas-toolbar absolute top-3 right-3 z-10 flex items-center gap-1 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl"
     style="zoom: var(--ui-scale, 1); transform-origin: top right;"
   >
     <button
@@ -856,4 +1089,184 @@
       class="!bg-zinc-950 !border !border-zinc-800/90 rounded-lg overflow-hidden"
     />
   </SvelteFlow>
+
+  <!-- Canvas Context Menu (Right Click) -->
+  {#if contextMenu.show}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      onclick={() => (contextMenu.show = false)}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        handleCanvasContextMenu(e);
+      }}
+      class="fixed inset-0 z-40 cursor-default"
+    ></div>
+
+    <div
+      class="fixed z-50 w-52 rounded-xl bg-zinc-900/98 border border-zinc-700/90 shadow-2xl p-1.5 space-y-1 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
+      style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+    >
+      {#if targetContextMenuNode}
+        <!-- Node specific context actions -->
+        <div class="text-[10px] font-bold text-zinc-400 uppercase px-2 py-0.5 truncate">
+          {targetContextMenuNode.data?.title || 'Quadrado'}
+        </div>
+
+        <button
+          type="button"
+          onclick={() => {
+            if (targetContextMenuNode?.data) {
+              campaignStore.openNodeEditor(targetContextMenuNode.data);
+            }
+            contextMenu.show = false;
+          }}
+          class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-zinc-200 hover:bg-zinc-800"
+        >
+          <Pencil class="w-3.5 h-3.5 text-amber-400" />
+          <span>Editar Quadrado</span>
+        </button>
+
+        <button
+          type="button"
+          onclick={() => {
+            if (contextMenu.nodeId) {
+              campaignStore.duplicateNode(contextMenu.nodeId);
+            }
+            contextMenu.show = false;
+          }}
+          class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-zinc-200 hover:bg-zinc-800"
+        >
+          <Copy class="w-3.5 h-3.5 text-zinc-400" />
+          <span>Duplicar</span>
+        </button>
+
+        <button
+          type="button"
+          onclick={() => {
+            if (contextMenu.nodeId) {
+              campaignStore.deleteNode(contextMenu.nodeId);
+            }
+            contextMenu.show = false;
+          }}
+          class="w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-rose-400 hover:bg-rose-950/40"
+        >
+          <Trash2 class="w-3.5 h-3.5 text-rose-400" />
+          <span>Eliminar</span>
+        </button>
+
+        <div class="h-px bg-zinc-800 my-1"></div>
+      {/if}
+
+      <!-- Main Creation Action: Novo Quadrado -->
+      <div class="text-[10px] font-bold text-zinc-400 uppercase px-2 py-0.5">
+        {targetContextMenuNode ? 'Criar Perto' : 'Novo no Mural'}
+      </div>
+
+      <button
+        type="button"
+        onclick={() => createEntityFromContextMenu('note')}
+        class="w-full px-2.5 py-2 rounded-lg text-left text-xs font-semibold flex items-center gap-2 transition cursor-pointer text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 group"
+      >
+        <div class="w-5 h-5 rounded-md bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+          <Plus class="w-3.5 h-3.5 text-amber-400" />
+        </div>
+        <div class="flex-1">
+          <div class="leading-tight">Novo Quadrado</div>
+          <div class="text-[10px] font-normal text-amber-400/80">Criar nota / quadrado</div>
+        </div>
+      </button>
+
+      <div class="h-px bg-zinc-800 my-1"></div>
+
+      <!-- Other entity categories -->
+      <button
+        type="button"
+        onclick={() => createEntityFromContextMenu('npc')}
+        class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-amber-300 hover:bg-amber-500/15 group"
+      >
+        <div class="w-5 h-5 rounded-md bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+          <User class="w-3 h-3 text-amber-400" />
+        </div>
+        <span class="font-medium">+ NPC</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => createEntityFromContextMenu('faction')}
+        class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-purple-300 hover:bg-purple-500/15 group"
+      >
+        <div class="w-5 h-5 rounded-md bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shrink-0">
+          <Shield class="w-3 h-3 text-purple-400" />
+        </div>
+        <span class="font-medium">+ Facção</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => createEntityFromContextMenu('location')}
+        class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-sky-300 hover:bg-sky-500/15 group"
+      >
+        <div class="w-5 h-5 rounded-md bg-sky-500/10 border border-sky-500/30 flex items-center justify-center shrink-0">
+          <MapPin class="w-3 h-3 text-sky-400" />
+        </div>
+        <span class="font-medium">+ Local</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => createEntityFromContextMenu('secret')}
+        class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-rose-300 hover:bg-rose-500/15 group"
+      >
+        <div class="w-5 h-5 rounded-md bg-rose-500/10 border border-rose-500/30 flex items-center justify-center shrink-0">
+          <Skull class="w-3 h-3 text-rose-400" />
+        </div>
+        <span class="font-medium">+ Segredo</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => createEntityFromContextMenu('table')}
+        class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-amber-300 hover:bg-amber-500/15 group"
+      >
+        <div class="w-5 h-5 rounded-md bg-amber-500/15 border border-amber-500/40 flex items-center justify-center shrink-0">
+          <Dices class="w-3 h-3 text-amber-400" />
+        </div>
+        <span class="font-medium">+ Tabela</span>
+      </button>
+
+      <div class="h-px bg-zinc-800 my-1"></div>
+
+      <button
+        type="button"
+        onclick={() => { contextMenu.show = false; handleScanWikilinks(); }}
+        class="w-full px-2 py-1.5 rounded-lg text-left text-xs flex items-center gap-2 transition cursor-pointer text-amber-300 hover:bg-amber-500/15 group"
+        title="Procura sintaxe [[nome_nota]] no texto e cria ligações automáticas"
+      >
+        <div class="w-5 h-5 rounded-md bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+          <Sparkles class="w-3 h-3 text-amber-400" />
+        </div>
+        <div class="flex-1">
+          <div class="font-medium text-amber-200">Escanear [[Wikilinks]]</div>
+          <div class="text-[9px] text-zinc-500">Conectar referências de notas</div>
+        </div>
+      </button>
+    </div>
+  {/if}
+
+  <!-- Scan Wikilinks Toast Alert -->
+  {#if scanToast}
+    <div
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-zinc-900/95 border border-amber-500/50 shadow-2xl backdrop-blur-md text-xs font-medium text-amber-200 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200"
+    >
+      <span>{scanToast}</span>
+      <button
+        type="button"
+        onclick={() => (scanToast = null)}
+        class="ml-2 text-zinc-400 hover:text-white text-xs font-bold px-1"
+      >
+        ✕
+      </button>
+    </div>
+  {/if}
 </div>

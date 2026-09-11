@@ -44,9 +44,120 @@ export function renderMarkdown(markdown: string): string {
     return `<span class="wikilink-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-medium hover:bg-amber-500/25 transition cursor-pointer" data-target="${cleanTarget}">🔗 ${label.trim()}</span>`;
   });
 
+  // Images: ![alt](url)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/gim, (_, alt, src) => {
+    const cleanSrc = src.replace(/&amp;/g, '&').trim();
+    const caption = alt ? alt.trim() : '';
+    const captionHtml = caption
+      ? `<div class="px-3 py-1.5 text-[11px] text-zinc-400 bg-zinc-950/90 border-t border-zinc-800/80 italic truncate">${caption}</div>`
+      : '';
+    return `<div class="my-3 rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950 shadow-lg max-w-full"><img src="${cleanSrc}" alt="${caption}" class="w-full max-h-[500px] object-contain bg-zinc-950/60 block" loading="lazy" />${captionHtml}</div>`;
+  });
+
+  // Standard Links: [text](url)
+  html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/gim, (_, text, href) => {
+    const cleanHref = href.replace(/&amp;/g, '&').trim();
+    return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer" class="text-amber-400 hover:text-amber-300 underline underline-offset-2">${text}</a>`;
+  });
+
   // Linebreaks
   html = html.replace(/\n\n+/g, '<br/><br/>');
   html = html.replace(/(?<!<\/h1>|<\/h2>|<\/h3>|<\/blockquote>|<\/pre>|<\/li>)\n/g, '<br/>');
 
   return html;
 }
+
+/**
+ * Replaces all occurrences of a wikilink target across a text string,
+ * preserving any aliases and surrounding Markdown structure.
+ * Matches case-insensitively and handles optional .md extensions.
+ */
+export function replaceWikilinkTarget(
+  text: string,
+  oldTarget: string,
+  newTarget: string
+): string {
+  if (!text || !text.includes('[[')) return text;
+  const cleanOld = oldTarget.trim();
+  const cleanNew = newTarget.trim();
+  if (!cleanOld || !cleanNew || cleanOld.toLowerCase() === cleanNew.toLowerCase()) {
+    return text;
+  }
+
+  const oldLower = cleanOld.toLowerCase();
+
+  return text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (fullMatch, target, alias) => {
+    const t = target.trim().toLowerCase();
+    const isMatch =
+      t === oldLower ||
+      t === `${oldLower}.md` ||
+      (oldLower.endsWith('.md') && t === oldLower.replace(/\.md$/, '')) ||
+      normalizeWikilinkTarget(t) === normalizeWikilinkTarget(cleanOld);
+
+    if (isMatch) {
+      if (alias !== undefined) {
+        return `[[${cleanNew}|${alias}]]`;
+      }
+      return `[[${cleanNew}]]`;
+    }
+    return fullMatch;
+  });
+}
+
+/**
+ * Extracts all unique wikilink targets from a markdown string,
+ * ignoring any pipe aliases and trimming whitespace.
+ */
+export function extractWikilinkTargets(content: string): string[] {
+  if (!content || !content.includes('[[')) return [];
+  const matches = Array.from(content.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g));
+  return matches.map((m) => m[1].trim()).filter(Boolean);
+}
+
+/**
+ * Normalizes a wikilink target or node title for resilient comparison:
+ * handles accents/diacritics, underscores, hyphens, .md suffixes and casing.
+ * e.g. "[[Alberto_Gomes.md]]" matches "Alberto Gomes", and "[[otavio]]" matches "Otávio".
+ */
+export function normalizeWikilinkTarget(str: string): string {
+  if (!str) return '';
+  return str
+    .trim()
+    .replace(/\.md$/i, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_\-]+/g, ' ')
+    .toLowerCase();
+}
+
+export interface MarkdownImage {
+  alt: string;
+  url: string;
+}
+
+/**
+ * Extracts all images (![alt](url)) embedded inside markdown text.
+ */
+export function extractImagesFromMarkdown(markdown: string): MarkdownImage[] {
+  if (!markdown || !markdown.includes('![')) return [];
+  const regex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  const images: MarkdownImage[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(markdown)) !== null) {
+    images.push({
+      alt: match[1]?.trim() || '',
+      url: match[2]?.replace(/&amp;/g, '&').trim() || '',
+    });
+  }
+  return images;
+}
+
+/**
+ * Strips markdown image tags from text to get a clean text-only description/summary
+ * without displaying huge base64 strings or raw image syntax.
+ */
+export function stripImagesFromMarkdown(markdown: string): string {
+  if (!markdown) return '';
+  return markdown.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '').trim();
+}
+

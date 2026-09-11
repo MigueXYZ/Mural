@@ -64,7 +64,7 @@ export const initialNodes: Node<EntityNodeData>[] = [
       category: 'location',
       title: 'Vallenmoor — Praça do Mercado',
       subtitle: 'LOCAL',
-      description: 'Mercado movimentado de dia, mas silencioso e vigiado à noite.',
+      description: 'Mercado movimentado de dia, mas silencioso e vigiado à noite.\n\n![Praça Central](https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&auto=format&fit=crop&q=80)\n\nRelatos dizem que mercadores ouviram sussurros perto do poço.',
       color: '#38bdf8',
       colorTheme: '#38bdf8',
       icon: 'map-pin',
@@ -222,6 +222,36 @@ export const initialCampaign: CampaignData = {
   nodes: initialNodes,
   edges: initialEdges,
   customCalendar: AERTHYS_PRESET,
+  maps: [
+    {
+      id: 'default-map',
+      title: 'Mapa da Província',
+      name: 'Mapa da Província',
+      imageUrl: 'https://images.unsplash.com/photo-1524654458049-e36be0721fa2?auto=format&fit=crop&w=1600&q=80',
+      pins: [
+        {
+          id: 'pin-1',
+          mapId: 'default-map',
+          targetNodeId: 'npc-serah',
+          xPercent: 42.5,
+          yPercent: 38.0,
+          label: 'Taverna de Vallenmoor',
+          title: 'Taverna de Vallenmoor',
+          category: 'location',
+        },
+        {
+          id: 'pin-2',
+          mapId: 'default-map',
+          targetNodeId: 'loc-vallenmoor',
+          xPercent: 68.0,
+          yPercent: 55.2,
+          label: 'O Poço Selado',
+          title: 'O Poço Selado',
+          category: 'location',
+        },
+      ],
+    },
+  ],
 };
 
 export const sampleCampaigns: CampaignData[] = [
@@ -323,6 +353,26 @@ export const sampleCampaigns: CampaignData[] = [
           bidirectional: false,
           notes: 'Testemunha viu o doutor entrando na ala às 23:45.',
         },
+      },
+    ],
+    maps: [
+      {
+        id: 'ordem-map-1',
+        title: 'Planta do Sanatório Abandonado',
+        name: 'Planta do Sanatório Abandonado',
+        imageUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1600&q=80',
+        pins: [
+          {
+            id: 'ordem-pin-1',
+            mapId: 'ordem-map-1',
+            targetNodeId: 'ordem-loc-1',
+            xPercent: 52.0,
+            yPercent: 44.0,
+            label: 'Pavilhão Oeste (Local de Crime)',
+            title: 'Pavilhão Oeste (Local de Crime)',
+            category: 'location',
+          },
+        ],
       },
     ],
   },

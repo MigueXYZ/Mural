@@ -1,18 +1,19 @@
 <script lang="ts">
   import { campaignStore } from '../../stores/campaignStore.svelte';
   import { get } from 'svelte/store';
-  import { X, MapPin, Sparkles, Link2, Palette, Check } from 'lucide-svelte';
+  import { X, MapPin, Check, Link2, Palette, AlignLeft } from 'lucide-svelte';
+  import type { MapPin as MapPinType } from '../../types';
 
   let {
     isOpen = $bindable(false),
-    xPercent = 50,
-    yPercent = 50,
-    onPinCreated,
+    mapId,
+    pin = null,
+    onSave,
   }: {
     isOpen: boolean;
-    xPercent: number;
-    yPercent: number;
-    onPinCreated: (pin: { targetNodeId: string; label?: string; xPercent: number; yPercent: number; color?: string; notes?: string }) => void;
+    mapId: string;
+    pin: MapPinType | null;
+    onSave?: (updatedPin: MapPinType) => void;
   } = $props();
 
   let label = $state('');
@@ -32,20 +33,33 @@
 
   const availableNodes = $derived(get(campaignStore.nodes));
 
+  $effect(() => {
+    if (isOpen && pin) {
+      label = pin.label || pin.title || '';
+      selectedTargetNodeId = pin.targetNodeId || '';
+      color = pin.color || '#f59e0b';
+      notes = pin.notes || pin.description || '';
+    }
+  });
+
   function handleSubmit() {
-    onPinCreated({
-      targetNodeId: selectedTargetNodeId,
-      label: label.trim() || 'Ponto de Interesse',
-      xPercent,
-      yPercent,
+    if (!pin || !mapId || !label.trim()) return;
+
+    const updates: Partial<MapPinType> = {
+      label: label.trim(),
+      title: label.trim(),
+      targetNodeId: selectedTargetNodeId || undefined,
       color,
       notes: notes.trim(),
-    });
+    };
+
+    campaignStore.updateMapPin(mapId, pin.id, updates);
+
+    if (onSave) {
+      onSave({ ...pin, ...updates });
+    }
+
     isOpen = false;
-    label = '';
-    selectedTargetNodeId = '';
-    notes = '';
-    color = '#f59e0b';
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -60,18 +74,23 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if isOpen}
+{#if isOpen && pin}
   <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-    <div class="w-full max-w-md bg-zinc-900 border border-zinc-700/80 rounded-2xl p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+    <div
+      class="w-full max-w-md bg-zinc-900 border border-zinc-700/80 rounded-2xl p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150"
+    >
       <!-- Header -->
       <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
         <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+          <div
+            class="w-8 h-8 rounded-lg flex items-center justify-center border shadow-inner"
+            style="background-color: {color}20; border-color: {color}60; color: {color};"
+          >
             <MapPin class="w-4 h-4" />
           </div>
           <div>
-            <h2 class="text-sm font-semibold text-zinc-100">Criar Marcador no Mapa</h2>
-            <p class="text-xs text-zinc-400">Posição: {xPercent.toFixed(1)}%, {yPercent.toFixed(1)}%</p>
+            <h2 class="text-sm font-semibold text-zinc-100">Editar Marcador</h2>
+            <p class="text-xs text-zinc-400">Posição: {pin.xPercent.toFixed(1)}%, {pin.yPercent.toFixed(1)}%</p>
           </div>
         </div>
         <button
@@ -84,12 +103,13 @@
 
       <!-- Form -->
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="space-y-4 text-xs">
+        <!-- Label -->
         <div>
-          <label for="pin-label-input" class="block font-medium text-zinc-300 mb-1.5">
+          <label for="edit-pin-label-input" class="block font-medium text-zinc-300 mb-1.5">
             Nome do Local / Marcador <span class="text-amber-400">*</span>
           </label>
           <input
-            id="pin-label-input"
+            id="edit-pin-label-input"
             type="text"
             placeholder="Ex: Mansão Abandonada, Praça Central..."
             bind:value={label}
@@ -124,12 +144,12 @@
 
         <!-- Target Entity Node Link -->
         <div>
-          <label for="pin-node-select" class="block font-medium text-zinc-300 mb-1.5 flex items-center gap-1.5">
+          <label for="edit-pin-node-select" class="block font-medium text-zinc-300 mb-1.5 flex items-center gap-1.5">
             <Link2 class="w-3.5 h-3.5 text-zinc-400" />
             <span>Vincular a uma Entidade do Mural</span>
           </label>
           <select
-            id="pin-node-select"
+            id="edit-pin-node-select"
             bind:value={selectedTargetNodeId}
             class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-amber-500/60"
           >
@@ -140,9 +160,21 @@
               </option>
             {/each}
           </select>
-          <p class="text-[10px] text-zinc-500 mt-1">
-            Vincular permite saltar diretamente para este nó no quadro de investigação.
-          </p>
+        </div>
+
+        <!-- Notes -->
+        <div>
+          <label for="edit-pin-notes-input" class="block font-medium text-zinc-300 mb-1.5 flex items-center gap-1.5">
+            <AlignLeft class="w-3.5 h-3.5 text-zinc-400" />
+            <span>Notas / Descrição do Marcador</span>
+          </label>
+          <textarea
+            id="edit-pin-notes-input"
+            rows="2"
+            placeholder="Informações adicionais para este ponto de interesse..."
+            bind:value={notes}
+            class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-none"
+          ></textarea>
         </div>
 
         <!-- Actions -->
@@ -159,8 +191,8 @@
             disabled={!label.trim()}
             class="px-5 py-2 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-md cursor-pointer"
           >
-            <Sparkles class="w-3.5 h-3.5" />
-            <span>Colocar Marcador</span>
+            <Check class="w-3.5 h-3.5" />
+            <span>Guardar Alterações</span>
           </button>
         </div>
       </form>

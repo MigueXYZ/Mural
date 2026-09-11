@@ -3,22 +3,30 @@
   import { appState } from '../../stores/appState.svelte';
   import { campaignStore } from '../../stores/campaignStore.svelte';
   import { get } from 'svelte/store';
-  import { MapPin as PinIcon, ArrowUpRight, Trash2, FileText, Plus } from 'lucide-svelte';
+  import { MapPin as PinIcon, ArrowUpRight, Trash2, FileText, Plus, Pencil } from 'lucide-svelte';
+  import EditPinModal from './EditPinModal.svelte';
 
   let {
     pin,
+    mapId,
     onDelete,
   }: {
     pin: MapPin;
+    mapId?: string;
     onDelete?: (pinId: string) => void;
   } = $props();
 
   let showTooltip = $state(false);
+  let isEditModalOpen = $state(false);
 
   const targetNode = $derived(
     pin.targetNodeId
       ? get(campaignStore.nodes).find((n) => n.id === pin.targetNodeId)
       : null
+  );
+
+  const pinColor = $derived(
+    pin.color || (targetNode ? (targetNode.data.color || '#d4a359') : '#f59e0b')
   );
 
   function handleOpenFullNote(e?: MouseEvent) {
@@ -73,10 +81,16 @@
 >
   <!-- Animated Pin Icon -->
   <div class="relative flex items-center justify-center">
-    <div class="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-500 flex items-center justify-center text-amber-400 group-hover:scale-110 group-hover:bg-amber-500 group-hover:text-zinc-950 transition shadow-lg shadow-black/60">
+    <div
+      class="w-8 h-8 rounded-full border flex items-center justify-center group-hover:scale-110 transition shadow-lg shadow-black/60"
+      style="background-color: {pinColor}25; border-color: {pinColor}; color: {pinColor};"
+    >
       <PinIcon class="w-4 h-4" />
     </div>
-    <div class="w-2 h-2 rounded-full bg-amber-400 absolute -bottom-1 shadow-md shadow-amber-400/80"></div>
+    <div
+      class="w-2 h-2 rounded-full absolute -bottom-1 shadow-md"
+      style="background-color: {pinColor}; box-shadow: 0 0 6px {pinColor};"
+    ></div>
   </div>
 
   <!-- Popover / Tooltip -->
@@ -86,16 +100,25 @@
       : 'opacity-0 scale-95 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto'}"
   >
     <div class="flex items-start justify-between gap-1 mb-1">
-      <span class="text-xs font-bold text-zinc-100 truncate">
+      <span class="text-xs font-bold text-zinc-100 truncate flex-1">
         {pin.label || targetNode?.data.title || 'Marcador'}
       </span>
-      <button
-        onclick={handleDelete}
-        title="Eliminar Marcador"
-        class="text-zinc-500 hover:text-rose-400 p-0.5 rounded transition cursor-pointer"
-      >
-        <Trash2 class="w-3 h-3" />
-      </button>
+      <div class="flex items-center gap-0.5">
+        <button
+          onclick={(e) => { e.stopPropagation(); isEditModalOpen = true; }}
+          title="Editar Marcador"
+          class="text-zinc-500 hover:text-amber-400 p-0.5 rounded transition cursor-pointer"
+        >
+          <Pencil class="w-3 h-3" />
+        </button>
+        <button
+          onclick={handleDelete}
+          title="Eliminar Marcador"
+          class="text-zinc-500 hover:text-rose-400 p-0.5 rounded transition cursor-pointer"
+        >
+          <Trash2 class="w-3 h-3" />
+        </button>
+      </div>
     </div>
 
     {#if targetNode}
@@ -141,3 +164,8 @@
     {/if}
   </div>
 </div>
+
+{#if mapId}
+  <EditPinModal bind:isOpen={isEditModalOpen} {mapId} {pin} />
+{/if}
+

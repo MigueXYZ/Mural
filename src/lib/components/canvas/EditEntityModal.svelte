@@ -26,6 +26,9 @@
     Palette,
     Link2,
     Sparkles,
+    Image as ImageIcon,
+    Upload,
+    Globe,
     Maximize2,
     Minimize2,
     Bold,
@@ -48,7 +51,7 @@
     BookOpen,
     ArrowLeftRight,
   } from 'lucide-svelte';
-  import { renderMarkdown } from '../../utils/markdown';
+  import { renderMarkdown, extractWikilinkTargets } from '../../utils/markdown';
 
   const node = $derived(campaignStore.editingNode);
   const nodesStore = campaignStore.nodes;
@@ -92,6 +95,11 @@
   let textColor = $state('');
   let selectedIcon = $state('user');
   let audioPlaylistId = $state('');
+  let imageUrl = $state('');
+  let isCoverUrlInputOpen = $state(false);
+  let coverUrlInput = $state('');
+  let coverImageFileInput: HTMLInputElement | undefined = $state();
+  let inlineImageFileInput: HTMLInputElement | undefined = $state();
 
   // Encounter Tables State
   let tables = $state<EncounterTable[]>([]);
@@ -101,6 +109,9 @@
   let attachedNotes = $state<AttachedNote[]>([]);
   let newNoteTitle = $state('');
   let newNoteContent = $state('');
+
+  // Wikilinks detected in description in real time
+  const detectedWikilinks = $derived(extractWikilinkTargets(description));
 
   // Color preset palette
   const COLOR_PALETTE = [
@@ -132,7 +143,7 @@
     if (node) {
       title = node.title || '';
       subtitle = node.subtitle || '';
-      description = node.description || '';
+      description = node.content || node.description || '';
       type = (node.type || node.category || 'npc') as EntityType;
       isSecret = Boolean(node.isSecret || node.type === 'secret');
       tags = Array.isArray(node.tags) ? [...node.tags] : [];
@@ -144,10 +155,56 @@
       tables = JSON.parse(JSON.stringify(node.tables || []));
       activeTableIndex = 0;
       attachedNotes = JSON.parse(JSON.stringify(node.notes || []));
-      newNoteTitle = '';
-      newNoteContent = '';
+      imageUrl = (node.imageUrl as string) || '';
+      isCoverUrlInputOpen = false;
+      coverUrlInput = '';
     }
   });
+
+  function handleCoverFileUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files[0]) {
+      const file = target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          imageUrl = event.target.result as string;
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handleAddCoverFromUrl() {
+    if (coverUrlInput.trim()) {
+      imageUrl = coverUrlInput.trim();
+      coverUrlInput = '';
+      isCoverUrlInputOpen = false;
+    }
+  }
+
+  function handleInlineImageFileUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files[0]) {
+      const file = target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          const name = file.name.replace(/\.[^/.]+$/, '');
+          insertMarkdown(`![${name}](`, ')', event.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handlePromptInlineImageUrl() {
+    const url = prompt('Cole o link / URL da imagem:');
+    if (url && url.trim()) {
+      const alt = prompt('Descrição ou legenda da imagem (opcional):') || 'Imagem';
+      insertMarkdown(`![${alt.trim()}](`, ')', url.trim());
+    }
+  }
 
   function handleTypeSelect(item: (typeof typesList)[0]) {
     type = item.id;
@@ -282,6 +339,96 @@
     }, 10);
   }
 
+  function handleDescPaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              insertMarkdown('\n![Imagem Colada](', ')\n', event.target.result as string);
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+        break;
+      }
+    }
+  }
+
+  function handleDescDrop(e: DragEvent) {
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('image/')) {
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            const name = file.name.replace(/\.[^/.]+$/, '');
+            insertMarkdown(`\n![${name}](`, ')\n', event.target.result as string);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  }
+
+  let subNoteImageFileInput = $state<HTMLInputElement | null>(null);
+
+  function handleSubNoteImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files[0]) {
+      const file = target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          const name = file.name.replace(/\.[^/.]+$/, '');
+          newNoteContent = newNoteContent.trim()
+            ? `${newNoteContent}\n\n![${name}](${event.target.result as string})`
+            : `![${name}](${event.target.result as string})`;
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handleSubNotePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              newNoteContent = newNoteContent.trim()
+                ? `${newNoteContent}\n\n![Imagem Colada](${event.target.result as string})`
+                : `![Imagem Colada](${event.target.result as string})`;
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+        break;
+      }
+    }
+  }
+
+  function handleSubNoteImageUrlPrompt() {
+    const url = prompt('Cole o link / URL da imagem para a sub-nota:');
+    if (url && url.trim()) {
+      const alt = prompt('Descrição ou legenda da imagem (opcional):') || 'Imagem';
+      newNoteContent = newNoteContent.trim()
+        ? `${newNoteContent}\n\n![${alt.trim()}](${url.trim()})`
+        : `![${alt.trim()}](${url.trim()})`;
+    }
+  }
+
   function handleColorLiveSync(newColor: string) {
     color = newColor;
     if (node?.id) {
@@ -314,6 +461,7 @@
         title: title.trim() || 'Sem Título',
         subtitle: subtitle.trim() || type.toUpperCase(),
         description: description.trim(),
+        content: description.trim(),
         type,
         category: type,
         isSecret: isSecret || type === 'secret',
@@ -324,6 +472,7 @@
         icon: selectedIcon,
         tables,
         notes: attachedNotes,
+        imageUrl: imageUrl.trim() || undefined,
         audioPlaylistId: audioPlaylistId || undefined,
       });
       isFullScreen = false;
@@ -394,6 +543,83 @@
           class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60"
         />
       </div>
+    </div>
+
+    <!-- Cover Image / Portrait / Handout -->
+    <div class="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 space-y-2">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+          <ImageIcon class="w-3.5 h-3.5 text-amber-400" />
+          <span>Imagem de Capa / Retrato da Nota</span>
+        </span>
+        {#if imageUrl}
+          <button
+            type="button"
+            onclick={() => (imageUrl = '')}
+            class="text-[11px] text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline cursor-pointer"
+          >
+            <Trash2 class="w-3 h-3" />
+            <span>Remover Imagem</span>
+          </button>
+        {/if}
+      </div>
+
+      {#if imageUrl}
+        <div class="relative w-full h-32 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-950 flex items-center justify-center">
+          <img src={imageUrl} alt="Capa da Nota" class="w-full h-full object-cover" />
+        </div>
+      {:else}
+        <div class="flex items-center gap-2 flex-wrap">
+          <input
+            type="file"
+            accept="image/*"
+            bind:this={coverImageFileInput}
+            onchange={handleCoverFileUpload}
+            class="hidden"
+          />
+          <button
+            type="button"
+            onclick={() => coverImageFileInput?.click()}
+            class="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-zinc-100 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Upload class="w-3.5 h-3.5 text-amber-400" />
+            <span>Carregar do Computador</span>
+          </button>
+          {#if !isCoverUrlInputOpen}
+            <button
+              type="button"
+              onclick={() => (isCoverUrlInputOpen = true)}
+              class="px-3 py-1.5 rounded-lg bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Globe class="w-3.5 h-3.5" />
+              <span>Inserir Link / URL</span>
+            </button>
+          {:else}
+            <div class="flex items-center gap-1.5 flex-1 min-w-[200px]">
+              <input
+                type="url"
+                placeholder="https://exemplo.com/imagem.jpg"
+                bind:value={coverUrlInput}
+                class="flex-1 px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60"
+              />
+              <button
+                type="button"
+                onclick={handleAddCoverFromUrl}
+                class="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 text-xs font-medium cursor-pointer shrink-0"
+              >
+                Definir
+              </button>
+              <button
+                type="button"
+                onclick={() => (isCoverUrlInputOpen = false)}
+                class="p-1.5 text-zinc-500 hover:text-zinc-300 cursor-pointer shrink-0"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -541,6 +767,39 @@
         >
           <Table class="w-3.5 h-3.5" />
         </button>
+        <div class="w-px h-4 bg-zinc-800 mx-0.5"></div>
+        <button
+          type="button"
+          onclick={() => insertMarkdown('[[', ']]', 'Nome da Nota')}
+          class="px-1.5 py-1 hover:bg-amber-500/20 hover:text-amber-300 text-amber-400 font-mono text-xs font-bold rounded-md transition cursor-pointer border border-amber-500/30"
+          title="Inserir [[Wikilink]] (Conexão Automática de Nota)"
+        >
+          [[ ]]
+        </button>
+        <div class="w-px h-4 bg-zinc-800 mx-0.5"></div>
+        <input
+          type="file"
+          accept="image/*"
+          bind:this={inlineImageFileInput}
+          onchange={handleInlineImageFileUpload}
+          class="hidden"
+        />
+        <button
+          type="button"
+          onclick={() => inlineImageFileInput?.click()}
+          class="p-1.5 hover:bg-zinc-800 hover:text-amber-300 text-zinc-400 rounded-md transition cursor-pointer flex items-center gap-1"
+          title="Inserir Imagem do Computador (Upload)"
+        >
+          <ImageIcon class="w-3.5 h-3.5 text-amber-400" />
+        </button>
+        <button
+          type="button"
+          onclick={handlePromptInlineImageUrl}
+          class="p-1.5 hover:bg-zinc-800 hover:text-amber-300 text-zinc-400 rounded-md transition cursor-pointer"
+          title="Inserir Imagem por Link / URL da Web"
+        >
+          <Globe class="w-3.5 h-3.5 text-zinc-400" />
+        </button>
       </div>
     {/if}
 
@@ -552,7 +811,10 @@
           rows={isFullScreen ? 20 : 7}
           bind:this={descTextareaRef}
           bind:value={description}
-          placeholder="Escreve aqui notas ricas em Markdown, regras, segredos e descrições narrativas..."
+          onpaste={handleDescPaste}
+          ondrop={handleDescDrop}
+          ondragover={(e) => e.preventDefault()}
+          placeholder="Escreve aqui notas ricas em Markdown, regras, segredos e descrições narrativas... (Podes usar [[nome_nota]] para criar ligações automáticas no mural, ou colar imagens com Ctrl+V!)"
           class="w-full h-full min-h-[160px] px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-y leading-relaxed font-mono"
         ></textarea>
       {/if}
@@ -565,6 +827,20 @@
         </div>
       {/if}
     </div>
+
+    <!-- Live Wikilinks Detected Indicator -->
+    {#if detectedWikilinks.length > 0}
+      <div class="flex items-center gap-1.5 flex-wrap px-2 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">
+        <span class="font-medium flex items-center gap-1 text-amber-400">
+          <span>🔗</span> Conexões detetadas:
+        </span>
+        {#each detectedWikilinks as link}
+          <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 font-mono text-[10px] border border-amber-500/30">
+            [[{link}]]
+          </span>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <!-- Tags & Secret Row -->
@@ -577,43 +853,76 @@
           type="text"
           placeholder="Adicionar tag..."
           bind:value={tagInput}
-          onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
-          class="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-amber-500/60"
+          onkeydown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addTag();
+            }
+          }}
+          class="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60"
         />
         <button
           type="button"
           onclick={addTag}
-          class="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-200"
+          class="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800 text-xs font-medium cursor-pointer"
         >
-          <Plus class="w-3.5 h-3.5" />
+          Adicionar
         </button>
       </div>
       {#if tags.length > 0}
         <div class="flex flex-wrap gap-1 mt-2">
-          {#each tags as t}
-            <span class="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] flex items-center gap-1">
-              <span>{t}</span>
-              <button onclick={() => removeTag(t)} class="text-zinc-500 hover:text-rose-400">×</button>
+          {#each tags as tag}
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300"
+            >
+              <span>#{tag}</span>
+              <button
+                type="button"
+                onclick={() => removeTag(tag)}
+                class="text-zinc-500 hover:text-zinc-300 cursor-pointer"
+              >
+                <X class="w-3 h-3" />
+              </button>
             </span>
           {/each}
         </div>
       {/if}
     </div>
 
-    <!-- Secret Mode Toggle -->
-    <div class="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800 flex items-center justify-between">
-      <div>
-        <div class="font-semibold text-xs text-zinc-200 flex items-center gap-1.5">
-          <Lock class="w-3 h-3 text-rose-400" />
-          <span>Segredo Oculto</span>
+    <!-- Secret / Visible Toggle Card -->
+    <div>
+      <span class="block font-medium text-zinc-300 text-xs mb-1">Visibilidade de Mestre</span>
+      <div
+        class="flex items-center justify-between p-2.5 rounded-xl border transition {isSecret
+          ? 'bg-rose-950/20 border-rose-900/50'
+          : 'bg-zinc-950/50 border-zinc-800'}"
+      >
+        <div class="flex items-center gap-2">
+          {#if isSecret}
+            <Lock class="w-4 h-4 text-rose-400" />
+            <div>
+              <div class="text-xs font-semibold text-rose-300">Nota Secreta (Apenas Mestre)</div>
+              <div class="text-[10px] text-rose-400/80">Oculta aos jogadores no mural até ser revelada</div>
+            </div>
+          {:else}
+            <Unlock class="w-4 h-4 text-emerald-400" />
+            <div>
+              <div class="text-xs font-semibold text-zinc-200">Nota Visível</div>
+              <div class="text-[10px] text-zinc-400">Todos os participantes podem ver e interagir</div>
+            </div>
+          {/if}
         </div>
-        <div class="text-[10px] text-zinc-500">Apenas o Mestre tem conhecimento</div>
+
+        <button
+          type="button"
+          onclick={() => (isSecret = !isSecret)}
+          class="px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer {isSecret
+            ? 'bg-rose-900/40 border-rose-700/60 text-rose-200 hover:bg-rose-900/60'
+            : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'}"
+        >
+          {isSecret ? 'Tornar Público' : 'Tornar Segredo'}
+        </button>
       </div>
-      <input
-        type="checkbox"
-        bind:checked={isSecret}
-        class="w-4 h-4 rounded bg-zinc-900 border-zinc-700 text-rose-500 focus:ring-rose-500/30 accent-rose-500 cursor-pointer"
-      />
     </div>
   </div>
 {/snippet}
@@ -622,13 +931,13 @@
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <div>
-        <h3 class="text-xs font-bold text-zinc-100">Tabelas de Encontros & Eventos Aleatórios</h3>
-        <p class="text-[11px] text-zinc-400">Rola dados interativos durante a sessão para gerar acontecimentos</p>
+        <h3 class="text-xs font-bold text-zinc-100">Tabelas de Encontro & Rolagens</h3>
+        <p class="text-[11px] text-zinc-400">Cria tabelas de dados vinculadas a esta entidade com rolagens ao vivo</p>
       </div>
       <button
         type="button"
         onclick={addNewTable}
-        class="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+        class="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
       >
         <Plus class="w-3.5 h-3.5" />
         <span>Nova Tabela</span>
@@ -636,8 +945,8 @@
     </div>
 
     {#if tables.length > 0}
-      <!-- Table Selector Tabs -->
-      <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+      <!-- Tables Sub-Tabs -->
+      <div class="flex items-center gap-1.5 border-b border-zinc-800 pb-2 overflow-x-auto">
         {#each tables as tbl, idx}
           <button
             type="button"
@@ -797,7 +1106,7 @@
   <div class="space-y-4">
     <div>
       <h3 class="text-xs font-bold text-zinc-100">Caderno de Contexto & Sub-Notas</h3>
-      <p class="text-[11px] text-zinc-400">Anexa cartas, regras de ambiente, armadilhas e lore aprofundado a esta entidade</p>
+      <p class="text-[11px] text-zinc-400">Anexa cartas, regras de ambiente, armadilhas, ilustrações e lore aprofundado a esta entidade</p>
     </div>
 
     <!-- Add Sub-Note Form -->
@@ -810,11 +1119,40 @@
       />
       <textarea
         rows="2"
-        placeholder="Conteúdo complementar ou estatísticas..."
+        placeholder="Conteúdo complementar, pistas ou estatísticas... (suporta imagens com Ctrl+V)"
         bind:value={newNoteContent}
-        class="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-none"
+        onpaste={handleSubNotePaste}
+        class="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-none font-mono"
       ></textarea>
-      <div class="flex justify-end">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-1.5">
+          <input
+            type="file"
+            accept="image/*"
+            bind:this={subNoteImageFileInput}
+            onchange={handleSubNoteImageUpload}
+            class="hidden"
+          />
+          <button
+            type="button"
+            onclick={() => subNoteImageFileInput?.click()}
+            class="px-2 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-amber-300 text-xs flex items-center gap-1 transition cursor-pointer"
+            title="Inserir imagem do ficheiro"
+          >
+            <ImageIcon class="w-3.5 h-3.5 text-amber-400" />
+            <span>Imagem</span>
+          </button>
+          <button
+            type="button"
+            onclick={handleSubNoteImageUrlPrompt}
+            class="px-2 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-amber-300 text-xs flex items-center gap-1 transition cursor-pointer"
+            title="Inserir imagem por link / URL"
+          >
+            <Globe class="w-3.5 h-3.5 text-zinc-400" />
+            <span>URL</span>
+          </button>
+        </div>
+
         <button
           type="button"
           onclick={addAttachedNote}
@@ -842,7 +1180,9 @@
                 <Trash2 class="w-3.5 h-3.5" />
               </button>
             </div>
-            <p class="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{n.content}</p>
+            <div class="text-xs text-zinc-300 leading-relaxed max-w-none">
+              {@html renderMarkdown(n.content)}
+            </div>
           </div>
         {/each}
       </div>
@@ -1100,7 +1440,7 @@
         {#if isSidebarOpen}
           <aside class="w-80 lg:w-96 border-l border-zinc-800 bg-zinc-950/90 flex flex-col shrink-0 overflow-hidden shadow-2xl">
             <!-- Sidebar Navigation Tabs -->
-            <div class="flex items-center gap-1 p-2 border-b border-zinc-800 bg-zinc-950 text-xs overflow-x-auto">
+            <div class="flex items-center gap-1 p-2 border-b border-zinc-800 bg-zinc-950 text-xs overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onclick={() => (sidebarActiveTab = 'tables')}
@@ -1241,10 +1581,11 @@
         </div>
 
         <!-- Navigation Tabs -->
-        <div class="flex items-center gap-2 px-6 pt-3 border-b border-zinc-800 bg-zinc-950/50 text-xs overflow-x-auto">
+        <div class="flex items-center gap-1.5 px-6 pt-3 border-b border-zinc-800 bg-zinc-950/50 text-xs overflow-x-auto no-scrollbar">
           <button
+            type="button"
             onclick={() => (activeTab = 'general')}
-            class="px-3.5 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 {activeTab === 'general'
+            class="px-3 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 shrink-0 cursor-pointer {activeTab === 'general'
               ? 'border-amber-400 text-amber-300 bg-zinc-900'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
           >
@@ -1253,8 +1594,9 @@
           </button>
 
           <button
+            type="button"
             onclick={() => (activeTab = 'tables')}
-            class="px-3.5 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 {activeTab === 'tables'
+            class="px-3 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 shrink-0 cursor-pointer {activeTab === 'tables'
               ? 'border-amber-400 text-amber-300 bg-zinc-900'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
           >
@@ -1263,8 +1605,9 @@
           </button>
 
           <button
+            type="button"
             onclick={() => (activeTab = 'notes')}
-            class="px-3.5 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 {activeTab === 'notes'
+            class="px-3 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 shrink-0 cursor-pointer {activeTab === 'notes'
               ? 'border-amber-400 text-amber-300 bg-zinc-900'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
           >
@@ -1273,8 +1616,9 @@
           </button>
 
           <button
+            type="button"
             onclick={() => (activeTab = 'connections')}
-            class="px-3.5 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 {activeTab === 'connections'
+            class="px-3 py-2 rounded-t-xl font-medium flex items-center gap-1.5 transition border-b-2 shrink-0 cursor-pointer {activeTab === 'connections'
               ? 'border-amber-400 text-amber-300 bg-zinc-900'
               : 'border-transparent text-zinc-400 hover:text-zinc-200'}"
           >

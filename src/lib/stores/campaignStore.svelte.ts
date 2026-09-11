@@ -13,6 +13,8 @@ import type {
   CampaignFileNode,
   CombatStats,
   EntityCategory,
+  MapData,
+  MapPin,
 } from '../types';
 import type { Node, Edge } from '@xyflow/svelte';
 import { writable, get } from 'svelte/store';
@@ -26,6 +28,7 @@ import {
   AERTHYS_PRESET,
   GREGORIAN_PRESET,
 } from '../services/calendar/calendarEngine';
+import { replaceWikilinkTarget, extractWikilinkTargets, normalizeWikilinkTarget } from '../utils/markdown';
 
 class CampaignStore {
   // Active Campaign Reactive State
@@ -46,10 +49,20 @@ class CampaignStore {
   fileSystem = $state<CampaignFileNode[]>([]);
   activeScopeFolderId = $state<string | 'all'>('all');
   selectedFileId = $state<string | null>(null);
+  draggedFileId = $state<string | null>(null);
+
+  setDraggedFileId(id: string | null) {
+    this.draggedFileId = id;
+  }
 
   // Custom Calendar Modal State (US 154)
   isCalendarOpen = $state<boolean>(false);
   isCalendarConfigOpen = $state<boolean>(false);
+
+  // Atlas & Maps State
+  activeMapId = $state<string | null>(
+    initialCampaign.maps && initialCampaign.maps.length > 0 ? initialCampaign.maps[0].id : null
+  );
 
   // Persistence & Autosave Reactive State
   isDirty = $state<boolean>(false);
@@ -74,6 +87,11 @@ class CampaignStore {
 
   constructor() {
     this.initLifecycleHooks();
+    if (this.fileSystem.length === 0) {
+      this.initializeDefaultFileSystem(this.campaign.nodes || []);
+    } else {
+      this.syncFileSystemWithNodes();
+    }
   }
 
   private initLifecycleHooks() {
@@ -218,12 +236,19 @@ class CampaignStore {
 
     if (this.fileSystem.length === 0) {
       this.initializeDefaultFileSystem(this.campaign.nodes || []);
+    } else {
+      this.syncFileSystemWithNodes();
     }
 
     // Apply active canvas scope if non-default
     if (this.activeScopeFolderId !== 'all') {
       this.setCanvasScope(this.activeScopeFolderId);
     }
+
+    // Normalize maps and activeMapId
+    const normalizedMaps = data.maps && Array.isArray(data.maps) ? JSON.parse(JSON.stringify(data.maps)) : [];
+    this.campaign.maps = normalizedMaps;
+    this.activeMapId = normalizedMaps.length > 0 ? normalizedMaps[0].id : null;
 
     this.searchQuery = '';
     this.selectedEntity = null;
@@ -282,6 +307,7 @@ class CampaignStore {
       }
     }
     this.campaign.edges = updatedEdges;
+    this.campaign.fileSystem = JSON.parse(JSON.stringify(this.fileSystem));
   }
 
   setCanvasScope(folderId: string | 'all') {
@@ -333,6 +359,37 @@ class CampaignStore {
 
     this.nodes.set(JSON.parse(JSON.stringify(filteredNodes)));
     this.edges.set(JSON.parse(JSON.stringify(filteredEdges)));
+  }
+
+  syncFileSystemWithNodes() {
+    let changed = false;
+    const existingNodeIds = new Set(this.fileSystem.map((f) => f.nodeId).filter(Boolean));
+
+    (this.campaign.nodes || []).forEach((node) => {
+      if (!existingNodeIds.has(node.id)) {
+        this.fileSystem.push({
+          id: `file-${node.id}`,
+          name: node.data?.title || 'Sem Título',
+          type: 'file',
+          parentId: (node.data?.folderId as string) || null,
+          nodeId: node.id,
+        });
+        existingNodeIds.add(node.id);
+        changed = true;
+      } else {
+        const file = this.fileSystem.find((f) => f.nodeId === node.id);
+        if (file && node.data?.title && file.name !== node.data.title) {
+          file.name = node.data.title;
+          changed = true;
+        }
+      }
+    });
+
+    if (changed) {
+      this.fileSystem = [...this.fileSystem];
+      this.campaign.fileSystem = this.fileSystem;
+      this.markDirty();
+    }
   }
 
   initializeDefaultFileSystem(nodes: Node<EntityNodeData>[]) {
@@ -587,6 +644,13 @@ class CampaignStore {
 
     this.recordSnapshot();
 
+    // Ensure bidirectional synchronization between description (canvas card) and content (dossier)
+    if (partial.description !== undefined && partial.content === undefined) {
+      partial.content = partial.description;
+    } else if (partial.content !== undefined && partial.description === undefined) {
+      partial.description = partial.content;
+    }
+
     this.nodes.update((list) =>
       list.map((node) => {
         if (node.id === id) {
@@ -605,16 +669,33 @@ class CampaignStore {
 
     // Sync master nodes
     const masterNode = (this.campaign.nodes || []).find((n) => n.id === id);
+    const oldTitle = masterNode?.data?.title;
     if (masterNode) {
       masterNode.data = { ...masterNode.data, ...partial };
     }
 
-    // Sync file system item name if title changed
+    if (this.selectedEntity && this.selectedEntity.id === id) {
+      this.selectedEntity = { ...this.selectedEntity, ...partial };
+    }
+
+    // Sync file system item name if title changed and cascade wikilink references
     if (partial.title) {
+      const cleanTitle = partial.title.trim();
       const file = this.fileSystem.find((f) => f.nodeId === id);
       if (file) {
-        file.name = partial.title;
+        file.name = cleanTitle;
+        this.fileSystem = [...this.fileSystem];
+        this.campaign.fileSystem = this.fileSystem;
       }
+      if (oldTitle && cleanTitle && oldTitle.trim().toLowerCase() !== cleanTitle.toLowerCase()) {
+        this.updateWikilinkReferences(oldTitle, cleanTitle, id);
+      }
+    }
+
+    // Auto-scan and connect wikilinks in real-time when content or description changes
+    const textToScan = partial.content ?? partial.description;
+    if (typeof textToScan === 'string' && textToScan.includes('[[')) {
+      this.syncWikilinksForNodeInternal(id, textToScan);
     }
 
     this.markDirty();
@@ -627,7 +708,8 @@ class CampaignStore {
     this.edges.update((list) => list.filter((e) => e.source !== id && e.target !== id));
     this.campaign.nodes = (this.campaign.nodes || []).filter((n) => n.id !== id);
     this.campaign.edges = (this.campaign.edges || []).filter((e) => e.source !== id && e.target !== id);
-    this.fileSystem = this.fileSystem.filter((f) => f.nodeId !== id);
+    this.fileSystem = this.fileSystem.filter((f) => f.nodeId !== id && f.id !== `file-${id}`);
+    this.campaign.fileSystem = this.fileSystem;
 
     if (this.editingNode?.id === id) {
       this.editingNode = null;
@@ -647,6 +729,7 @@ class CampaignStore {
     this.campaign.nodes = (this.campaign.nodes || []).filter((n) => !set.has(n.id));
     this.campaign.edges = (this.campaign.edges || []).filter((e) => !set.has(e.source) && !set.has(e.target));
     this.fileSystem = this.fileSystem.filter((f) => !f.nodeId || !set.has(f.nodeId));
+    this.campaign.fileSystem = this.fileSystem;
 
     if (this.editingNode && set.has(this.editingNode.id)) {
       this.editingNode = null;
@@ -678,13 +761,17 @@ class CampaignStore {
     this.nodes.update((nodes) => [...nodes, duplicatedNode]);
     this.campaign.nodes = [...(this.campaign.nodes || []), duplicatedNode];
 
-    this.fileSystem.push({
-      id: `file-${newId}`,
-      name: duplicatedNode.data.title,
-      type: 'file',
-      parentId: (existing.data?.folderId as string) || null,
-      nodeId: newId,
-    });
+    this.fileSystem = [
+      ...this.fileSystem,
+      {
+        id: `file-${newId}`,
+        name: duplicatedNode.data.title,
+        type: 'file',
+        parentId: (existing.data?.folderId as string) || null,
+        nodeId: newId,
+      },
+    ];
+    this.campaign.fileSystem = this.fileSystem;
 
     this.markDirty();
   }
@@ -746,13 +833,17 @@ class CampaignStore {
     this.nodes.update((nodes) => [...nodes, newNode]);
     this.campaign.nodes = [...(this.campaign.nodes || []), newNode];
 
-    this.fileSystem.push({
-      id: `file-${id}`,
-      name: newNode.data.title,
-      type: 'file',
-      parentId: folderId,
-      nodeId: id,
-    });
+    this.fileSystem = [
+      ...this.fileSystem,
+      {
+        id: `file-${id}`,
+        name: newNode.data.title,
+        type: 'file',
+        parentId: folderId,
+        nodeId: id,
+      },
+    ];
+    this.campaign.fileSystem = this.fileSystem;
 
     this.markDirty();
   }
@@ -827,9 +918,14 @@ class CampaignStore {
     const item = this.fileSystem.find((f) => f.id === id);
     if (!item) return;
 
+    const oldName = item.name;
+    if (oldName === cleanName) return;
+
     item.name = cleanName;
     if (item.type === 'file' && item.nodeId) {
       this.updateNodeData(item.nodeId, { title: cleanName });
+    } else if (item.type === 'file') {
+      this.updateWikilinkReferences(oldName, cleanName);
     }
     this.fileSystem = [...this.fileSystem];
     this.campaign.fileSystem = this.fileSystem;
@@ -902,31 +998,31 @@ class CampaignStore {
     }
   }
 
-  syncWikilinksForNode(nodeId: string, content: string, combatStats?: CombatStats) {
-    this.recordSnapshot();
-    this.syncCurrentNodesToMaster();
-
-    const matches = Array.from(content.matchAll(/\[\[(.*?)\]\]/g));
-    const extractedTitles = matches.map((m) => m[1].trim()).filter(Boolean);
-    const targetSet = new Set(extractedTitles.map((t) => t.toLowerCase()));
+  /**
+   * Internal routine to synchronize wikilink edges for a given node based on its markdown text.
+   * Uses resilient normalization (accents, underscores, hyphens, .md suffix, casing).
+   */
+  syncWikilinksForNodeInternal(nodeId: string, content: string): { addedCount: number } {
+    const extractedTitles = extractWikilinkTargets(content);
+    const normalizedTargets = new Set(extractedTitles.map((t) => normalizeWikilinkTarget(t)).filter(Boolean));
 
     const allNodes = this.campaign.nodes || [];
     const sourceNode = allNodes.find((n) => n.id === nodeId);
-    if (!sourceNode) return;
+    if (!sourceNode) return { addedCount: 0 };
 
-    sourceNode.data.content = content;
-    if (combatStats) {
-      sourceNode.data.combatStats = { ...combatStats };
-    }
     sourceNode.data.wikilinks = extractedTitles;
 
-    const targetNodes = allNodes.filter(
-      (n) => n.id !== nodeId && (targetSet.has((n.data?.title || '').toLowerCase()) || targetSet.has(n.id.toLowerCase()))
-    );
+    const targetNodes = allNodes.filter((n) => {
+      if (n.id === nodeId) return false;
+      const normTitle = normalizeWikilinkTarget(n.data?.title || '');
+      const normId = normalizeWikilinkTarget(n.id);
+      return normalizedTargets.has(normTitle) || normalizedTargets.has(normId);
+    });
 
     const targetNodeIds = new Set(targetNodes.map((n) => n.id));
-
     const currentEdges = this.campaign.edges || [];
+    let addedCount = 0;
+
     targetNodes.forEach((targetNode) => {
       const exists = currentEdges.some(
         (e) => (e.source === nodeId && e.target === targetNode.id) || (e.source === targetNode.id && e.target === nodeId)
@@ -948,10 +1044,11 @@ class CampaignStore {
           },
         };
         this.campaign.edges.push(newEdge);
+        addedCount++;
       }
     });
 
-    // Prune removed wikilink edges
+    // Prune removed wikilink edges originating from this node
     this.campaign.edges = (this.campaign.edges || []).filter((e) => {
       if (e.source === nodeId && (e.id.startsWith(`edge-wikilink-${nodeId}-`) || e.data?.notes === 'Ligação gerada por [[wikilink]]')) {
         return targetNodeIds.has(e.target);
@@ -959,6 +1056,32 @@ class CampaignStore {
       return true;
     });
 
+    if (this.activeScopeFolderId === 'all') {
+      this.edges.set(JSON.parse(JSON.stringify(this.campaign.edges)));
+    } else {
+      this.setCanvasScope(this.activeScopeFolderId);
+    }
+
+    return { addedCount };
+  }
+
+  syncWikilinksForNode(nodeId: string, content: string, combatStats?: CombatStats) {
+    this.recordSnapshot();
+    this.syncCurrentNodesToMaster();
+
+    const allNodes = this.campaign.nodes || [];
+    const sourceNode = allNodes.find((n) => n.id === nodeId);
+    if (!sourceNode) return;
+
+    sourceNode.data.content = content;
+    sourceNode.data.description = content;
+    if (combatStats) {
+      sourceNode.data.combatStats = { ...combatStats };
+    }
+
+    const { addedCount } = this.syncWikilinksForNodeInternal(nodeId, content);
+
+    const extractedTitles = extractWikilinkTargets(content);
     this.nodes.update((list) =>
       list.map((n) => {
         if (n.id === nodeId) {
@@ -967,6 +1090,7 @@ class CampaignStore {
             data: {
               ...n.data,
               content,
+              description: content,
               combatStats: combatStats || n.data.combatStats,
               wikilinks: extractedTitles,
             },
@@ -976,10 +1100,233 @@ class CampaignStore {
       })
     );
 
-    if (this.activeScopeFolderId === 'all') {
-      this.edges.set(JSON.parse(JSON.stringify(this.campaign.edges)));
-    } else {
-      this.setCanvasScope(this.activeScopeFolderId);
+    this.markDirty();
+  }
+
+  /**
+   * Scans all notes/cards across the campaign for [[wikilinks]] and automatically connects them.
+   * Returns stats about newly created connections and total discovered references.
+   */
+  scanAllWikilinkConnections(): { created: number; totalFound: number } {
+    this.recordSnapshot();
+    this.syncCurrentNodesToMaster();
+
+    let created = 0;
+    let totalFound = 0;
+
+    const allNodes = this.campaign.nodes || [];
+    for (const node of allNodes) {
+      const text = (node.data?.content || '') + ' ' + (node.data?.description || '');
+      if (text.includes('[[')) {
+        const found = extractWikilinkTargets(text);
+        totalFound += found.length;
+        const res = this.syncWikilinksForNodeInternal(node.id, text);
+        created += res.addedCount;
+      }
+    }
+
+    this.markDirty();
+    return { created, totalFound };
+  }
+
+  /**
+   * Automatically updates all wikilinks, references, and connections across all documents,
+   * notes, and canvas entities when a note/file/entity is renamed.
+   */
+  updateWikilinkReferences(oldName: string, newName: string, nodeId?: string) {
+    const cleanOld = oldName.trim();
+    const cleanNew = newName.trim();
+    if (!cleanOld || !cleanNew || cleanOld.toLowerCase() === cleanNew.toLowerCase()) {
+      return;
+    }
+
+    const oldLower = cleanOld.toLowerCase();
+    let anyNodeUpdated = false;
+
+    // 1. Update all campaign nodes (content, description, attached notes, wikilinks array)
+    const updatedNodes = (this.campaign.nodes || []).map((node) => {
+      let nodeChanged = false;
+      let newContent = node.data.content || '';
+      let newDescription = node.data.description || '';
+
+      if (newContent.includes('[[')) {
+        const replaced = replaceWikilinkTarget(newContent, cleanOld, cleanNew);
+        if (replaced !== newContent) {
+          newContent = replaced;
+          nodeChanged = true;
+        }
+      }
+
+      if (newDescription.includes('[[')) {
+        const replaced = replaceWikilinkTarget(newDescription, cleanOld, cleanNew);
+        if (replaced !== newDescription) {
+          newDescription = replaced;
+          nodeChanged = true;
+        }
+      }
+
+      // Attached sub-notes
+      let newNotes = node.data.notes;
+      if (Array.isArray(node.data.notes) && node.data.notes.length > 0) {
+        let notesChanged = false;
+        const mappedNotes = node.data.notes.map((attached) => {
+          let aChanged = false;
+          let aContent = attached.content || '';
+          let aTitle = attached.title || '';
+          if (aContent.includes('[[')) {
+            const r = replaceWikilinkTarget(aContent, cleanOld, cleanNew);
+            if (r !== aContent) {
+              aContent = r;
+              aChanged = true;
+            }
+          }
+          if (aTitle.includes('[[')) {
+            const r = replaceWikilinkTarget(aTitle, cleanOld, cleanNew);
+            if (r !== aTitle) {
+              aTitle = r;
+              aChanged = true;
+            }
+          }
+          if (aChanged) {
+            notesChanged = true;
+            return { ...attached, content: aContent, title: aTitle };
+          }
+          return attached;
+        });
+        if (notesChanged) {
+          newNotes = mappedNotes;
+          nodeChanged = true;
+        }
+      }
+
+      // Wikilinks array
+      let newWikilinks = node.data.wikilinks;
+      if (nodeChanged || Array.isArray(node.data.wikilinks)) {
+        newWikilinks = extractWikilinkTargets(newContent);
+      }
+
+      if (nodeChanged) {
+        anyNodeUpdated = true;
+        const updatedData: EntityNodeData = {
+          ...node.data,
+          content: newContent,
+          description: newDescription,
+          notes: newNotes,
+          wikilinks: newWikilinks,
+        };
+        return {
+          ...node,
+          data: updatedData,
+        };
+      }
+      return node;
+    });
+
+    if (anyNodeUpdated) {
+      this.campaign.nodes = updatedNodes;
+      this.nodes.set(JSON.parse(JSON.stringify(updatedNodes)));
+      if (this.selectedEntity) {
+        const matching = updatedNodes.find((n) => n.id === this.selectedEntity?.id);
+        if (matching) {
+          this.selectedEntity = { ...matching.data };
+        }
+      }
+    }
+
+    // 2. Update Lore entries if they contain wikilinks
+    if (Array.isArray(this.campaign.lore)) {
+      this.campaign.lore = this.campaign.lore.map((item) => {
+        let changed = false;
+        let cContent = item.content || '';
+        let cTitle = item.title || '';
+        if (cContent.includes('[[')) {
+          const r = replaceWikilinkTarget(cContent, cleanOld, cleanNew);
+          if (r !== cContent) {
+            cContent = r;
+            changed = true;
+          }
+        }
+        if (cTitle.includes('[[')) {
+          const r = replaceWikilinkTarget(cTitle, cleanOld, cleanNew);
+          if (r !== cTitle) {
+            cTitle = r;
+            changed = true;
+          }
+        }
+        return changed ? { ...item, content: cContent, title: cTitle } : item;
+      });
+    }
+
+    // 3. Update Timeline markers
+    if (Array.isArray(this.campaign.timeline)) {
+      this.campaign.timeline = this.campaign.timeline.map((marker) => {
+        let changed = false;
+        let mNotes = marker.notes || '';
+        let mText = marker.sessionText || '';
+        if (mNotes.includes('[[')) {
+          const r = replaceWikilinkTarget(mNotes, cleanOld, cleanNew);
+          if (r !== mNotes) {
+            mNotes = r;
+            changed = true;
+          }
+        }
+        if (mText.includes('[[')) {
+          const r = replaceWikilinkTarget(mText, cleanOld, cleanNew);
+          if (r !== mText) {
+            mText = r;
+            changed = true;
+          }
+        }
+        return changed ? { ...marker, notes: mNotes, sessionText: mText } : marker;
+      });
+    }
+
+    // 4. Update Map Pins
+    if (Array.isArray(this.campaign.maps)) {
+      this.campaign.maps.forEach((map) => {
+        if (Array.isArray(map.pins)) {
+          map.pins.forEach((pin) => {
+            if (nodeId && pin.targetNodeId === nodeId) {
+              if (pin.label.toLowerCase() === oldLower) {
+                pin.label = cleanNew;
+              }
+              if (pin.title && pin.title.toLowerCase() === oldLower) {
+                pin.title = cleanNew;
+              }
+            }
+            if (pin.notes && pin.notes.includes('[[')) {
+              pin.notes = replaceWikilinkTarget(pin.notes, cleanOld, cleanNew);
+            }
+          });
+        }
+      });
+    }
+
+    // 5. Update Canvas Edges
+    if (Array.isArray(this.campaign.edges)) {
+      let edgesChanged = false;
+      this.campaign.edges.forEach((edge) => {
+        const edgeData = edge.data as CanvasRelationEdgeData | undefined;
+        if (edgeData) {
+          if (typeof edgeData.notes === 'string' && edgeData.notes.includes('[[')) {
+            const r = replaceWikilinkTarget(edgeData.notes, cleanOld, cleanNew);
+            if (r !== edgeData.notes) {
+              edgeData.notes = r;
+              edgesChanged = true;
+            }
+          }
+          if (typeof edgeData.label === 'string' && edgeData.label.includes('[[')) {
+            const r = replaceWikilinkTarget(edgeData.label, cleanOld, cleanNew);
+            if (r !== edgeData.label) {
+              edgeData.label = r;
+              edgesChanged = true;
+            }
+          }
+        }
+      });
+      if (edgesChanged && this.edges) {
+        this.edges.set(JSON.parse(JSON.stringify(this.campaign.edges)));
+      }
     }
 
     this.markDirty();
@@ -1511,6 +1858,135 @@ class CampaignStore {
   getCurrentMoonPhases(): MoonPhaseResult[] {
     const cal = this.activeCalendar;
     return getMoonPhases(cal.currentYear, cal.currentMonthIndex, cal.currentDay, cal);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Atlas & Map Actions
+  // ---------------------------------------------------------------------------
+
+  setActiveMap(mapId: string | null) {
+    this.activeMapId = mapId;
+  }
+
+  addMap(title: string, imageUrl: string, gridSize: number = 50): MapData {
+    this.recordSnapshot();
+    const newMap: MapData = {
+      id: `map-${Date.now()}`,
+      title: title.trim() || 'Novo Mapa',
+      name: title.trim() || 'Novo Mapa',
+      imageUrl: imageUrl.trim(),
+      gridSize,
+      pins: [],
+    };
+    this.campaign.maps = [...(this.campaign.maps || []), newMap];
+    this.activeMapId = newMap.id;
+    this.markDirty();
+    return newMap;
+  }
+
+  updateMap(mapId: string, updates: Partial<MapData>) {
+    this.recordSnapshot();
+    this.campaign.maps = (this.campaign.maps || []).map((m) => {
+      if (m.id === mapId) {
+        const title = updates.title !== undefined ? updates.title.trim() : (updates.name !== undefined ? updates.name.trim() : m.title);
+        return {
+          ...m,
+          ...updates,
+          title: title || m.title || 'Mapa Sem Nome',
+          name: title || m.name || 'Mapa Sem Nome',
+        };
+      }
+      return m;
+    });
+    this.markDirty();
+  }
+
+  deleteMap(mapId: string) {
+    this.recordSnapshot();
+    const remaining = (this.campaign.maps || []).filter((m) => m.id !== mapId);
+    this.campaign.maps = remaining;
+    if (this.activeMapId === mapId) {
+      this.activeMapId = remaining.length > 0 ? remaining[0].id : null;
+    }
+    this.markDirty();
+  }
+
+  addMapPin(
+    mapId: string,
+    pinData: {
+      targetNodeId?: string;
+      label: string;
+      xPercent: number;
+      yPercent: number;
+      color?: string;
+      notes?: string;
+      category?: MapPin['category'];
+    }
+  ): MapPin {
+    this.recordSnapshot();
+    const newPin: MapPin = {
+      id: `pin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      mapId,
+      targetNodeId: pinData.targetNodeId || undefined,
+      label: pinData.label.trim() || 'Marcador',
+      title: pinData.label.trim() || 'Marcador',
+      xPercent: Math.max(0, Math.min(100, pinData.xPercent)),
+      yPercent: Math.max(0, Math.min(100, pinData.yPercent)),
+      color: pinData.color,
+      notes: pinData.notes,
+      category: pinData.category || 'location',
+    };
+    this.campaign.maps = (this.campaign.maps || []).map((m) => {
+      if (m.id === mapId) {
+        return {
+          ...m,
+          pins: [...(m.pins || []), newPin],
+        };
+      }
+      return m;
+    });
+    this.markDirty();
+    return newPin;
+  }
+
+  updateMapPin(mapId: string, pinId: string, updates: Partial<MapPin>) {
+    this.recordSnapshot();
+    this.campaign.maps = (this.campaign.maps || []).map((m) => {
+      if (m.id === mapId) {
+        return {
+          ...m,
+          pins: (m.pins || []).map((p) => {
+            if (p.id === pinId) {
+              const label = updates.label !== undefined ? updates.label.trim() : (updates.title !== undefined ? updates.title.trim() : p.label);
+              return {
+                ...p,
+                ...updates,
+                label: label || p.label,
+                title: label || p.title,
+                targetNodeId: updates.targetNodeId !== undefined ? (updates.targetNodeId || undefined) : p.targetNodeId,
+              };
+            }
+            return p;
+          }),
+        };
+      }
+      return m;
+    });
+    this.markDirty();
+  }
+
+  deleteMapPin(mapId: string, pinId: string) {
+    this.recordSnapshot();
+    this.campaign.maps = (this.campaign.maps || []).map((m) => {
+      if (m.id === mapId) {
+        return {
+          ...m,
+          pins: (m.pins || []).filter((p) => p.id !== pinId),
+        };
+      }
+      return m;
+    });
+    this.markDirty();
   }
 }
 

@@ -121,6 +121,7 @@ export interface EntityNodeData extends Record<string, unknown> {
   color?: string; // Primary accent color hex (e.g. '#d4a359', '#f87171')
   colorTheme?: string; // Alias for color
   textColor?: string; // Explicit text/title color hex (US R3)
+  imageUrl?: string; // Optional cover image, portrait, or illustration
 
   // File Explorer & Document Editor Extensions
   folderId?: string | null;
@@ -217,7 +218,10 @@ export interface TimelineMarker {
 
 export interface MapPin {
   id: string;
+  mapId?: string;
+  title?: string;
   label: string;
+  category?: 'location' | 'npc' | 'danger' | 'clue' | 'lore' | 'quest' | string;
   xPercent: number; // percentage 0 - 100
   yPercent: number; // percentage 0 - 100
   color?: string;

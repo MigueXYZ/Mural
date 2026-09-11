@@ -13,20 +13,77 @@ export interface LayoutOptions {
   iterations?: number;
 }
 
-const DEFAULT_NODE_WIDTH = 260;
-const DEFAULT_NODE_HEIGHT = 140;
-const DEFAULT_SPACING_X = 60;
-const DEFAULT_SPACING_Y = 90;
+export const DEFAULT_NODE_WIDTH = 280;
+export const DEFAULT_NODE_HEIGHT = 280;
+export const DEFAULT_SPACING_X = 100;
+export const DEFAULT_SPACING_Y = 120;
 
 /**
- * Main auto-layout service entry point.
- * Repositions nodes according to the selected algorithm without modifying edge connections.
+ * Calculates a realistic estimated height for a node based on its content:
+ * cover image, markdown images in description, text length, tags, tables, etc.
  */
-export function autoLayoutNodes<T extends Record<string, unknown>>(
+export function estimateNodeHeight<T extends Record<string, unknown>>(
+  node: Node<T> | undefined,
+  fallbackHeight = DEFAULT_NODE_HEIGHT
+): number {
+  if (!node) return fallbackHeight;
+
+  // 1. If svelte-flow has actual measured height, use it
+  const measuredH = (node as any).measured?.height || (node as any).height;
+  if (typeof measuredH === 'number' && measuredH > 60) {
+    return Math.max(measuredH, fallbackHeight);
+  }
+
+  const data = (node.data || {}) as any;
+  let h = 95; // Base card header, title, badges, and card padding
+
+  // Cover image / portrait (h-28 = 112px + margins)
+  if (data.imageUrl) {
+    h += 128;
+  }
+
+  // Markdown embedded images in description / content
+  const desc = typeof data.description === 'string' ? data.description : '';
+  const content = typeof data.content === 'string' ? data.content : '';
+  const combinedText = `${desc} ${content}`;
+  const imageMatches = combinedText.match(/!\[.*?\]\(.*?\)/g);
+  if (imageMatches && imageMatches.length > 0) {
+    h += imageMatches.length * 150;
+  }
+
+  // Tags chip rack
+  if (Array.isArray(data.tags) && data.tags.length > 0) {
+    h += 28;
+  }
+
+  // Description text preview (line-clamp-3)
+  const cleanDesc = desc.replace(/!\[.*?\]\(.*?\)/g, '').trim();
+  if (cleanDesc.length > 100) {
+    h += 60;
+  } else if (cleanDesc.length > 0) {
+    h += 40;
+  }
+
+  // Attached sub-tables/notes count badges footer
+  if ((data.tables && data.tables.length > 0) || (data.notes && data.notes.length > 0)) {
+    h += 32;
+  }
+
+  return Math.max(h, fallbackHeight);
+}
+
+/**
+ * Main Auto-Layout Entry Point
+ * Repositions nodes according to the selected algorithm and assigns optimal handles to edges.
+ */
+export function autoLayoutNodes<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  E extends Edge = Edge
+>(
   nodes: Node<T>[],
-  edges: Edge[],
+  edges: E[],
   options: LayoutOptions = {}
-): { nodes: Node<T>[]; edges: Edge[] } {
+): { nodes: Node<T>[]; edges: E[] } {
   if (!nodes || nodes.length === 0) {
     return { nodes: [], edges };
   }
@@ -62,9 +119,70 @@ export function autoLayoutNodes<T extends Record<string, unknown>>(
       break;
   }
 
+  // Map positioned nodes by ID for fast lookup
+  const nodePosMap = new Map<string, { x: number; y: number; h: number }>();
+  layoutedNodes.forEach((n) => {
+    nodePosMap.set(n.id, {
+      x: n.position.x,
+      y: n.position.y,
+      h: estimateNodeHeight(n, options.nodeHeight || DEFAULT_NODE_HEIGHT),
+    });
+  });
+
+  const nodeW = options.nodeWidth || DEFAULT_NODE_WIDTH;
+
+  // Intelligently assign handles on all 4 points (top, bottom, left, right)
+  // based on the spatial vector between source and target nodes
+  const updatedEdges = edges.map((edge) => {
+    const src = nodePosMap.get(edge.source);
+    const tgt = nodePosMap.get(edge.target);
+
+    if (!src || !tgt) return edge;
+
+    const srcCenterX = src.x + nodeW / 2;
+    const srcCenterY = src.y + src.h / 2;
+    const tgtCenterX = tgt.x + nodeW / 2;
+    const tgtCenterY = tgt.y + tgt.h / 2;
+
+    const dx = tgtCenterX - srcCenterX;
+    const dy = tgtCenterY - srcCenterY;
+
+    let sourceHandle = 'bottom';
+    let targetHandle = 'top';
+
+    // Check dominant direction (vertical vs horizontal)
+    if (Math.abs(dy) >= Math.abs(dx) * 0.8) {
+      if (dy >= 0) {
+        // Target is below source
+        sourceHandle = 'bottom';
+        targetHandle = 'top';
+      } else {
+        // Target is above source
+        sourceHandle = 'top';
+        targetHandle = 'bottom';
+      }
+    } else {
+      if (dx >= 0) {
+        // Target is to the right
+        sourceHandle = 'right';
+        targetHandle = 'left';
+      } else {
+        // Target is to the left
+        sourceHandle = 'left';
+        targetHandle = 'right';
+      }
+    }
+
+    return {
+      ...edge,
+      sourceHandle,
+      targetHandle,
+    };
+  });
+
   return {
     nodes: layoutedNodes,
-    edges,
+    edges: updatedEdges,
   };
 }
 
@@ -273,12 +391,27 @@ function hierarchicalDagLayout<T extends Record<string, unknown>>(
       rankGroups.set(r, layer);
     }
 
-    // Calculate layer widths and center alignment
+    // Calculate layer widths, dynamic layer heights, and cumulative Y coordinates
     let maxLayerWidth = 0;
+    const layerMaxHeights: number[] = [];
     for (let r = 0; r <= maxRank; r++) {
       const layer = rankGroups.get(r) || [];
       const w = layer.length * nodeWidth + Math.max(0, layer.length - 1) * spacingX;
       if (w > maxLayerWidth) maxLayerWidth = w;
+
+      let maxH = nodeHeight;
+      for (const id of layer) {
+        const n = nodeMap.get(id);
+        if (n) {
+          maxH = Math.max(maxH, estimateNodeHeight(n, nodeHeight));
+        }
+      }
+      layerMaxHeights.push(maxH);
+    }
+
+    const layerY: number[] = [100];
+    for (let r = 1; r <= maxRank; r++) {
+      layerY.push(layerY[r - 1] + layerMaxHeights[r - 1] + spacingY);
     }
 
     // Position vertices in component
@@ -290,14 +423,14 @@ function hierarchicalDagLayout<T extends Record<string, unknown>>(
       layer.forEach((nodeId, idx) => {
         const origNode = nodeMap.get(nodeId)!;
         let posX = startX + idx * (nodeWidth + spacingX);
-        let posY = 100 + r * (nodeHeight + spacingY);
+        let posY = layerY[r];
 
         if (direction === 'LR') {
           // Swap axes for Left-to-Right
           posX = 100 + r * (nodeWidth + spacingX * 1.5);
           posY = currentOffsetX + idx * (nodeHeight + spacingY);
         } else if (direction === 'BT') {
-          posY = 100 + (maxRank - r) * (nodeHeight + spacingY);
+          posY = layerY[maxRank - r];
         } else if (direction === 'RL') {
           posX = 100 + (maxRank - r) * (nodeWidth + spacingX * 1.5);
           posY = currentOffsetX + idx * (nodeHeight + spacingY);
@@ -310,7 +443,7 @@ function hierarchicalDagLayout<T extends Record<string, unknown>>(
       });
     }
 
-    const compH = (maxRank + 1) * (nodeHeight + spacingY);
+    const compH = (layerY[maxRank] || 100) + (layerMaxHeights[maxRank] || nodeHeight) - 100;
     if (compH > maxComponentHeight) maxComponentHeight = compH;
     currentOffsetX += maxLayerWidth + spacingX * 2;
   });
@@ -318,20 +451,42 @@ function hierarchicalDagLayout<T extends Record<string, unknown>>(
   // 4. Position Orphan Nodes in a Clean Matrix below or beside the graph
   if (orphans.length > 0) {
     const orphanCols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(orphans.length))));
-    const orphanStartY = subgraphs.length > 0 ? 100 + maxComponentHeight + 60 : 100;
+    const orphanStartY = subgraphs.length > 0 ? 100 + maxComponentHeight + spacingY : 100;
     const orphanStartX = 100;
 
-    orphans.forEach((orphanId, idx) => {
-      const origNode = nodeMap.get(orphanId)!;
-      const col = idx % orphanCols;
-      const row = Math.floor(idx / orphanCols);
+    const orphanRows: string[][] = [];
+    for (let i = 0; i < orphans.length; i += orphanCols) {
+      orphanRows.push(orphans.slice(i, i + orphanCols));
+    }
 
-      positionedNodes.push({
-        ...origNode,
-        position: {
-          x: Math.round(orphanStartX + col * (nodeWidth + spacingX)),
-          y: Math.round(orphanStartY + row * (nodeHeight + spacingY * 0.75)),
-        },
+    const orphanRowHeights: number[] = [];
+    for (const row of orphanRows) {
+      let rowH = nodeHeight;
+      for (const id of row) {
+        const n = nodeMap.get(id);
+        if (n) {
+          rowH = Math.max(rowH, estimateNodeHeight(n, nodeHeight));
+        }
+      }
+      orphanRowHeights.push(rowH);
+    }
+
+    const orphanRowY: number[] = [orphanStartY];
+    for (let r = 1; r < orphanRows.length; r++) {
+      orphanRowY.push(orphanRowY[r - 1] + orphanRowHeights[r - 1] + spacingY);
+    }
+
+    orphanRows.forEach((row, rIdx) => {
+      const y = orphanRowY[rIdx];
+      row.forEach((orphanId, cIdx) => {
+        const origNode = nodeMap.get(orphanId)!;
+        positionedNodes.push({
+          ...origNode,
+          position: {
+            x: Math.round(orphanStartX + cIdx * (nodeWidth + spacingX)),
+            y: Math.round(y),
+          },
+        });
       });
     });
   }
@@ -414,9 +569,14 @@ function forceDirectedLayout<T extends Record<string, unknown>>(
         disp.get(v)!.dx -= fx;
         disp.get(v)!.dy -= fy;
 
-        // Card collision padding box
-        if (Math.abs(dx) < nodeWidth + 30 && Math.abs(dy) < nodeHeight + 30) {
-          const push = 80;
+        // Card collision padding box with dynamic heights
+        const heightU = estimateNodeHeight(nodes[i], nodeHeight);
+        const heightV = estimateNodeHeight(nodes[j], nodeHeight);
+        const requiredDistY = (heightU + heightV) / 2 + 40;
+        const requiredDistX = nodeWidth + 40;
+
+        if (Math.abs(dx) < requiredDistX && Math.abs(dy) < requiredDistY) {
+          const push = 100;
           disp.get(u)!.dx += (dx >= 0 ? push : -push);
           disp.get(u)!.dy += (dy >= 0 ? push : -push);
           disp.get(v)!.dx -= (dx >= 0 ? push : -push);
@@ -510,18 +670,40 @@ function gridLayout<T extends Record<string, unknown>>(
   const startX = 100;
   const startY = 100;
 
-  return nodes.map((node, idx) => {
-    const col = idx % cols;
-    const row = Math.floor(idx / cols);
+  const rows: Node<T>[][] = [];
+  for (let i = 0; i < nodes.length; i += cols) {
+    rows.push(nodes.slice(i, i + cols));
+  }
 
-    return {
-      ...node,
-      position: {
-        x: Math.round(startX + col * (nodeWidth + spacingX)),
-        y: Math.round(startY + row * (nodeHeight + spacingY)),
-      },
-    };
+  const rowHeights: number[] = [];
+  for (const row of rows) {
+    let rowH = nodeHeight;
+    for (const n of row) {
+      rowH = Math.max(rowH, estimateNodeHeight(n, nodeHeight));
+    }
+    rowHeights.push(rowH);
+  }
+
+  const rowYPositions: number[] = [startY];
+  for (let r = 1; r < rows.length; r++) {
+    rowYPositions.push(rowYPositions[r - 1] + rowHeights[r - 1] + spacingY);
+  }
+
+  const positioned: Node<T>[] = [];
+  rows.forEach((row, rIdx) => {
+    const y = rowYPositions[rIdx];
+    row.forEach((node, cIdx) => {
+      positioned.push({
+        ...node,
+        position: {
+          x: Math.round(startX + cIdx * (nodeWidth + spacingX)),
+          y: Math.round(y),
+        },
+      });
+    });
   });
+
+  return positioned;
 }
 
 // ---------------------------------------------------------------------------

@@ -1046,6 +1046,51 @@ describe('F20: Interactive Atlas & Map Subsystem', () => {
     expect(remaining).toHaveLength(1);
     expect(remaining[0].title).toBe('P2');
   });
+
+  test('TC-F20-06: Creates a new map and adds to maps list', () => {
+    const maps = [
+      { id: 'map-1', title: 'Província', imageUrl: 'https://ex.com/1.jpg', pins: [] },
+    ];
+    const newMap = {
+      id: 'map-2',
+      title: 'Dungeon Nível 1',
+      imageUrl: 'https://ex.com/2.jpg',
+      pins: [],
+    };
+    const updated = [...maps, newMap];
+    expect(updated).toHaveLength(2);
+    expect(updated[1].title).toBe('Dungeon Nível 1');
+  });
+
+  test('TC-F20-07: Updates map title and image URL', () => {
+    let map = { id: 'map-1', title: 'Antigo Título', imageUrl: 'https://ex.com/old.jpg', pins: [] };
+    map = { ...map, title: 'Novo Título', imageUrl: 'https://ex.com/new.jpg' };
+    expect(map.title).toBe('Novo Título');
+    expect(map.imageUrl).toBe('https://ex.com/new.jpg');
+  });
+
+  test('TC-F20-08: Deletes map from campaign maps', () => {
+    const maps = [
+      { id: 'map-1', title: 'M1', imageUrl: 'https://ex.com/1.jpg', pins: [] },
+      { id: 'map-2', title: 'M2', imageUrl: 'https://ex.com/2.jpg', pins: [] },
+    ];
+    const remaining = maps.filter((m) => m.id !== 'map-1');
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe('map-2');
+  });
+
+  test('TC-F20-09: Updates pin color, notes, and label', () => {
+    const pin = createMapPin('map-1', 40, 50, 'Taverna');
+    const updated = {
+      ...pin,
+      label: 'Taverna do Bode Manco',
+      color: '#3b82f6',
+      notes: 'Ponto de encontro secreto.',
+    };
+    expect(updated.label).toBe('Taverna do Bode Manco');
+    expect(updated.color).toBe('#3b82f6');
+    expect(updated.notes).toBe('Ponto de encontro secreto.');
+  });
 });
 
 // ============================================================================

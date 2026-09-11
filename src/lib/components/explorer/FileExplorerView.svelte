@@ -5,7 +5,7 @@
   import type { CampaignFileNode, EntityCategory, EntityNodeData, CombatStats } from '../../types';
   import FileTreeItem from './FileTreeItem.svelte';
   import CombatStatblockCard from './CombatStatblockCard.svelte';
-  import { renderMarkdown } from '../../utils/markdown';
+  import { renderMarkdown, extractWikilinkTargets } from '../../utils/markdown';
   import { createZipArchive } from '../../utils/obsidianZip';
   import {
     FolderPlus,
@@ -33,6 +33,9 @@
     ArrowRight,
     Sparkles,
     CheckCircle2,
+    Image as ImageIcon,
+    Globe,
+    Upload,
   } from 'lucide-svelte';
 
   // Search & Filter
@@ -47,8 +50,51 @@
   let wikilinkInsertIndex = $state(-1);
   let selectedWikilinkIndex = $state(0);
 
-  // New Tag input
   let newTagInput = $state('');
+  let docImageFileInput: HTMLInputElement | undefined = $state();
+  let titleInputVal = $state('');
+  let isDragOverRoot = $state(false);
+
+  function handleRootDragOver(e: DragEvent) {
+    const isDraggingFile = campaignStore.draggedFileId || e.dataTransfer?.types?.includes('application/mural-file-id');
+    if (isDraggingFile) {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+      isDragOverRoot = true;
+    }
+  }
+
+  function handleRootDragLeave(e: DragEvent) {
+    e.preventDefault();
+    const currentTarget = e.currentTarget as HTMLElement | null;
+    const relatedTarget = e.relatedTarget as Node | null;
+    if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    isDragOverRoot = false;
+  }
+
+  function handleRootDrop(e: DragEvent) {
+    e.preventDefault();
+    isDragOverRoot = false;
+    const draggedId =
+      campaignStore.draggedFileId ||
+      e.dataTransfer?.getData('application/mural-file-id') ||
+      e.dataTransfer?.getData('text/plain');
+
+    campaignStore.setDraggedFileId(null);
+    if (draggedId) {
+      campaignStore.moveFileOrFolder(draggedId, null);
+    }
+  }
+
+  $effect(() => {
+    if (selectedItem) {
+      titleInputVal = activeNodeData?.title || selectedItem.name;
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // Reactive Derivations
@@ -119,8 +165,13 @@
       if (n.id === currentId) return;
       const content = (n.data?.content || '').toLowerCase();
       const wikilinks = (n.data?.wikilinks || []).map((w) => w.toLowerCase());
+      const extracted = extractWikilinkTargets(n.data?.content || '').map((t) => t.toLowerCase());
 
-      if (wikilinks.includes(currentTitle) || content.includes(`[[${currentTitle}]]`)) {
+      if (
+        wikilinks.includes(currentTitle) ||
+        extracted.includes(currentTitle) ||
+        content.includes(`[[${currentTitle}]]`)
+      ) {
         results.push({
           id: n.id,
           name: n.data.title || 'Sem título',
@@ -175,9 +226,13 @@
     campaignStore.openFile(newFileId);
   }
 
-  function handleTitleChange(newTitle: string) {
-    if (!selectedItem) return;
-    campaignStore.renameFileOrFolder(selectedItem.id, newTitle);
+  function commitTitleChange() {
+    const clean = titleInputVal.trim();
+    if (!selectedItem || !clean) return;
+    const current = activeNodeData?.title || selectedItem.name;
+    if (clean !== current) {
+      campaignStore.renameFileOrFolder(selectedItem.id, clean);
+    }
   }
 
   function handleCategoryChange(newCategory: EntityCategory) {
@@ -297,6 +352,42 @@
 
     showWikilinkMenu = false;
     campaignStore.syncWikilinksForNode(activeNode.id, newContent, activeNode.data.combatStats);
+  }
+
+  function insertDocSnippet(snippet: string) {
+    if (!textareaEl || !activeNode) return;
+    const currentText = textareaEl.value;
+    const start = textareaEl.selectionStart;
+    const end = textareaEl.selectionEnd;
+    const newContent = currentText.slice(0, start) + snippet + currentText.slice(end);
+    textareaEl.value = newContent;
+    const newPos = start + snippet.length;
+    textareaEl.setSelectionRange(newPos, newPos);
+    textareaEl.focus();
+    campaignStore.syncWikilinksForNode(activeNode.id, newContent, activeNode.data.combatStats);
+  }
+
+  function handleDocImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files[0]) {
+      const file = target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          const name = file.name.replace(/\.[^/.]+$/, '');
+          insertDocSnippet(`\n![${name}](${event.target.result as string})\n`);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handleDocImageUrlPrompt() {
+    const url = prompt('Cole o link / URL da imagem:');
+    if (url && url.trim()) {
+      const alt = prompt('Descrição ou legenda da imagem (opcional):') || 'Imagem';
+      insertDocSnippet(`\n![${alt.trim()}](${url.trim()})\n`);
+    }
   }
 
   function handleTextareaKeydown(e: KeyboardEvent) {
@@ -462,7 +553,13 @@
     </div>
 
     <!-- Tree View Body -->
-    <div class="flex-1 overflow-y-auto p-2 space-y-0.5 scrollbar-thin scrollbar-thumb-zinc-800">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      ondragover={handleRootDragOver}
+      ondragleave={handleRootDragLeave}
+      ondrop={handleRootDrop}
+      class="flex-1 overflow-y-auto p-2 space-y-0.5 scrollbar-thin scrollbar-thumb-zinc-800 transition-colors {isDragOverRoot ? 'bg-amber-500/5 ring-1 ring-inset ring-amber-500/40' : ''}"
+    >
       {#if isSearching}
         <!-- Search Results View -->
         <div class="text-[10px] uppercase font-bold text-zinc-500 px-2 py-1">
@@ -605,8 +702,16 @@
           <!-- Title Input -->
           <input
             type="text"
-            value={activeNodeData.title || selectedItem.name}
-            oninput={(e) => handleTitleChange((e.target as HTMLInputElement).value)}
+            bind:value={titleInputVal}
+            onblur={commitTitleChange}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') {
+                (e.target as HTMLInputElement).blur();
+              } else if (e.key === 'Escape') {
+                titleInputVal = activeNodeData?.title || selectedItem.name;
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
             placeholder="Título do Documento..."
             class="flex-1 min-w-[200px] text-base font-bold text-zinc-100 bg-transparent border-b border-transparent hover:border-zinc-800 focus:border-amber-500/80 focus:outline-none px-1 py-0.5 transition"
           />
@@ -673,15 +778,43 @@
             <!-- Editor Textarea Panel -->
             {#if viewMode === 'edit' || viewMode === 'split'}
               <div class="flex-1 flex flex-col border-r border-zinc-800/80 bg-[#090b0e] relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  bind:this={docImageFileInput}
+                  onchange={handleDocImageUpload}
+                  class="hidden"
+                />
                 <div class="px-3 py-1.5 border-b border-zinc-800/60 bg-zinc-950/60 flex items-center justify-between text-[11px] text-zinc-500">
-                  <span>Markdown & Wikilinks (digite <kbd class="px-1 py-0.5 bg-zinc-800 rounded font-mono text-amber-300">[[</kbd> para ligar)</span>
-                  <span>{(activeNodeData.content || '').length} caracteres</span>
+                  <div class="flex items-center gap-2">
+                    <span>Markdown & Wikilinks (digite <kbd class="px-1 py-0.5 bg-zinc-800 rounded font-mono text-amber-300">[[</kbd> para ligar)</span>
+                    <span class="text-zinc-700">|</span>
+                    <button
+                      type="button"
+                      onclick={() => docImageFileInput?.click()}
+                      class="px-1.5 py-0.5 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 rounded transition cursor-pointer flex items-center gap-1"
+                      title="Inserir imagem local do ficheiro"
+                    >
+                      <ImageIcon class="w-3 h-3 text-amber-400" />
+                      <span>Inserir Imagem</span>
+                    </button>
+                    <button
+                      type="button"
+                      onclick={handleDocImageUrlPrompt}
+                      class="px-1.5 py-0.5 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 rounded transition cursor-pointer flex items-center gap-1"
+                      title="Inserir imagem por link da Web"
+                    >
+                      <Globe class="w-3 h-3 text-zinc-400" />
+                      <span>URL</span>
+                    </button>
+                  </div>
+                  <span>{(activeNodeData.content ?? activeNodeData.description ?? '').length} caracteres</span>
                 </div>
 
                 <div class="flex-1 relative p-3">
                   <textarea
                     bind:this={textareaEl}
-                    value={activeNodeData.content || ''}
+                    value={activeNodeData.content ?? activeNodeData.description ?? ''}
                     oninput={handleContentInput}
                     onkeydown={handleTextareaKeydown}
                     placeholder="Escreva o dossiê, pistas, descrição ou segredos aqui... Use [[Nome do Ficheiro]] para criar ligações automáticas no Mural!"
@@ -714,8 +847,8 @@
             {#if viewMode === 'preview' || viewMode === 'split'}
               <div class="flex-1 flex flex-col bg-[#0b0d11] overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-zinc-800 select-text">
                 <div class="max-w-3xl w-full mx-auto space-y-4">
-                  <!-- Description Quote if present -->
-                  {#if activeNodeData.description}
+                  <!-- Description Quote if present and distinct from content -->
+                  {#if activeNodeData.description && activeNodeData.description !== activeNodeData.content && !activeNodeData.description.startsWith('Clica duas vezes')}
                     <blockquote class="p-3 rounded-xl bg-zinc-950/80 border-l-4 border-amber-500/70 text-xs text-zinc-300 italic">
                       {activeNodeData.description}
                     </blockquote>
@@ -728,7 +861,7 @@
                     class="prose prose-invert prose-amber max-w-none text-sm text-zinc-200 leading-relaxed font-sans"
                     onclick={handlePreviewClick}
                   >
-                    {@html renderMarkdown(activeNodeData.content || '')}
+                    {@html renderMarkdown(activeNodeData.content ?? activeNodeData.description ?? '')}
                   </div>
                 </div>
               </div>

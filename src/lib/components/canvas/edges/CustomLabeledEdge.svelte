@@ -386,7 +386,7 @@
   {/if}
   <div
     style="position: absolute; transform: translate(-50%, -50%) translate({labelX}px, {labelY}px); pointer-events: all; {isFilteredOut ? 'opacity: 0.08; pointer-events: none;' : ''}"
-    class="nodrag nopan select-none group/edge"
+    class="nodrag nopan select-none group/edge z-20"
   >
     <div
       class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-md transition-all duration-150 {stylingConfig.badgeBg} {stylingConfig.badgeBorder} {stylingConfig.glowClass} {selected ? 'ring-2 ring-amber-400/80 scale-105' : 'hover:scale-105'}"

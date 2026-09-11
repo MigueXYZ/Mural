@@ -57,9 +57,10 @@
       .filter((c) => (c.title || '').toLowerCase().includes(q))
       .slice(0, 3);
 
-    const matchedPins = (campaignStore.campaign.maps?.[0]?.pins || [])
-      .filter((p) => p.label.toLowerCase().includes(q))
-      .slice(0, 3);
+    const matchedPins = (campaignStore.campaign.maps || [])
+      .flatMap((m) => (m.pins || []).map((p) => ({ ...p, mapId: m.id, mapTitle: m.title || m.name })))
+      .filter((p) => (p.label || p.title || '').toLowerCase().includes(q))
+      .slice(0, 4);
 
     const totalMatches = matchedNodes.length + matchedLore.length + matchedClocks.length + matchedPins.length;
 
@@ -168,6 +169,9 @@
   }
 
   function handleSelectPin(pin: any) {
+    if (pin.mapId) {
+      campaignStore.setActiveMap(pin.mapId);
+    }
     appState.activeTab = 'maps';
     isSearchFocused = false;
   }
@@ -367,10 +371,15 @@
                   <button
                     type="button"
                     onclick={() => handleSelectPin(pin)}
-                    class="w-full p-2 rounded-xl text-left flex items-center gap-2 hover:bg-zinc-800 transition cursor-pointer"
+                    class="w-full p-2 rounded-xl text-left flex items-center justify-between hover:bg-zinc-800 transition cursor-pointer group"
                   >
-                    <MapPinIcon class="w-4 h-4 text-sky-400 shrink-0" />
-                    <span class="text-xs font-medium text-zinc-100 truncate">{pin.label || 'Marcador do Mapa'}</span>
+                    <div class="flex items-center gap-2 min-w-0">
+                      <MapPinIcon class="w-4 h-4 text-sky-400 shrink-0" />
+                      <span class="text-xs font-medium text-zinc-100 truncate group-hover:text-amber-300">{pin.label || pin.title || 'Marcador do Mapa'}</span>
+                    </div>
+                    {#if pin.mapTitle}
+                      <span class="text-[10px] text-zinc-500 truncate max-w-[120px] font-mono">{pin.mapTitle}</span>
+                    {/if}
                   </button>
                 {/each}
               </div>

@@ -15,8 +15,12 @@
     FileText,
     Music,
     Play,
+    Image as ImageIcon,
+    Maximize2,
+    X,
   } from 'lucide-svelte';
   import { audioEngine } from '../../../services/audio/audioEngine.svelte';
+  import { extractImagesFromMarkdown, stripImagesFromMarkdown } from '../../../utils/markdown';
 
   // Props passed by Svelte Flow
   let {
@@ -226,15 +230,97 @@
       audioEngine.playAmbience({ id: 'amb-rain', title: 'Chuva & Tempestade', src: 'synth:rain', category: 'ambience' });
     }
   }
+
+  // Note Image & Drag-and-drop state
+  let previewImageModal = $state<string | null>(null);
+  let isDragOver = $state(false);
+  let quickImageFileInput = $state<HTMLInputElement | null>(null);
+
+  const noteImages = $derived(extractImagesFromMarkdown(data?.description || ''));
+  const cleanDescription = $derived(stripImagesFromMarkdown(data?.description || ''));
+
+  function handleQuickImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files[0] && nodeId) {
+      const file = target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          const name = file.name.replace(/\.[^/.]+$/, '');
+          const currentDesc = data?.description || '';
+          const newDesc = currentDesc.trim()
+            ? `${currentDesc}\n\n![${name}](${event.target.result as string})`
+            : `![${name}](${event.target.result as string})`;
+          campaignStore.updateNodeData(nodeId, {
+            description: newDesc,
+            content: newDesc,
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handleDragOver(e: DragEvent) {
+    if (e.dataTransfer?.types.includes('Files')) {
+      e.preventDefault();
+      e.stopPropagation();
+      isDragOver = true;
+    }
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    isDragOver = false;
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    isDragOver = false;
+
+    if (!nodeId || !e.dataTransfer?.files || e.dataTransfer.files.length === 0) return;
+    const file = e.dataTransfer.files[0];
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          const name = file.name.replace(/\.[^/.]+$/, '');
+          const currentDesc = data?.description || '';
+          const newDesc = currentDesc.trim()
+            ? `${currentDesc}\n\n![${name}](${event.target.result as string})`
+            : `![${name}](${event.target.result as string})`;
+          campaignStore.updateNodeData(nodeId, {
+            description: newDesc,
+            content: newDesc,
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   ondblclick={handleDoubleClick}
-  class={containerClasses}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+  class="{containerClasses} {isDragOver ? '!border-amber-400 !border-dashed !ring-2 !ring-amber-400/80 bg-amber-950/25' : ''}"
   style="--node-accent: {activeColor};"
 >
-  <!-- Connection Handles (Top, Right, Bottom, Left) -->
+  {#if isDragOver}
+    <div class="absolute inset-0 bg-zinc-950/92 border-2 border-amber-400 border-dashed rounded-2xl flex flex-col items-center justify-center p-3 z-30 pointer-events-none text-center animate-in fade-in duration-100">
+      <ImageIcon class="w-8 h-8 text-amber-300 animate-bounce mb-1" />
+      <span class="text-xs font-bold text-amber-200">Largar imagem aqui</span>
+      <span class="text-[10px] text-zinc-400">Anexa à nota/descrição deste quadrado</span>
+    </div>
+  {/if}
+
+  <!-- Connection Handles (Top, Right, Bottom, Left - Bidirectional Dual Handles) -->
+  <!-- Top Handles -->
   <Handle
     type="target"
     position={Position.Top}
@@ -243,10 +329,26 @@
   />
   <Handle
     type="source"
+    position={Position.Top}
+    id="top-source"
+    class="!w-3 !h-3 !bg-zinc-700 hover:!bg-amber-400 !border-2 !border-zinc-950 !rounded-full transition-all duration-150 -top-1.5 opacity-0 hover:opacity-100"
+  />
+
+  <!-- Bottom Handles -->
+  <Handle
+    type="source"
     position={Position.Bottom}
     id="bottom"
     class="!w-3 !h-3 !bg-zinc-700 hover:!bg-amber-400 !border-2 !border-zinc-950 !rounded-full transition-all duration-150 -bottom-1.5"
   />
+  <Handle
+    type="target"
+    position={Position.Bottom}
+    id="bottom-target"
+    class="!w-3 !h-3 !bg-zinc-700 hover:!bg-amber-400 !border-2 !border-zinc-950 !rounded-full transition-all duration-150 -bottom-1.5 opacity-0 hover:opacity-100"
+  />
+
+  <!-- Left Handles -->
   <Handle
     type="target"
     position={Position.Left}
@@ -255,15 +357,47 @@
   />
   <Handle
     type="source"
+    position={Position.Left}
+    id="left-source"
+    class="!w-3 !h-3 !bg-zinc-700 hover:!bg-amber-400 !border-2 !border-zinc-950 !rounded-full transition-all duration-150 -left-1.5 opacity-0 hover:opacity-100"
+  />
+
+  <!-- Right Handles -->
+  <Handle
+    type="source"
     position={Position.Right}
     id="right"
     class="!w-3 !h-3 !bg-zinc-700 hover:!bg-amber-400 !border-2 !border-zinc-950 !rounded-full transition-all duration-150 -right-1.5"
+  />
+  <Handle
+    type="target"
+    position={Position.Right}
+    id="right-target"
+    class="!w-3 !h-3 !bg-zinc-700 hover:!bg-amber-400 !border-2 !border-zinc-950 !rounded-full transition-all duration-150 -right-1.5 opacity-0 hover:opacity-100"
   />
 
   <!-- Top Action Bar on Hover -->
   <div
     class="absolute -top-3.5 right-2 opacity-0 group-hover:opacity-100 transition-all duration-150 flex items-center gap-1 bg-zinc-950/95 border border-zinc-700/90 rounded-lg p-0.5 shadow-xl z-20"
   >
+    <input
+      type="file"
+      accept="image/*"
+      bind:this={quickImageFileInput}
+      onchange={handleQuickImageUpload}
+      class="hidden"
+    />
+    <button
+      type="button"
+      onclick={(e) => {
+        e.stopPropagation();
+        quickImageFileInput?.click();
+      }}
+      title="Adicionar Imagem à Nota deste Quadrado"
+      class="p-1 rounded text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition cursor-pointer"
+    >
+      <ImageIcon class="w-3 h-3" />
+    </button>
     <button
       type="button"
       onclick={handleEditClick}
@@ -335,6 +469,17 @@
     {data?.title || 'Sem Título'}
   </h3>
 
+  <!-- Cover Image / Portrait -->
+  {#if data?.imageUrl}
+    <div class="my-2 h-28 w-full rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-950 relative shadow-inner group/img">
+      <img
+        src={data.imageUrl}
+        alt={data.title}
+        class="w-full h-full object-cover filter brightness-95 contrast-105 group-hover/img:scale-105 transition-transform duration-300"
+      />
+    </div>
+  {/if}
+
   <!-- Tags Chip Rack -->
   {#if data?.tags && data.tags.length > 0}
     <div class="flex flex-wrap gap-1 mt-2 mb-1">
@@ -386,13 +531,44 @@
     </div>
   {/if}
 
-  <!-- Description / GM Notes with Secret Blur Filter -->
-  {#if data?.description}
+  <!-- Embedded Note Images (Images in Notes/Description of the Square) -->
+  {#if noteImages.length > 0}
+    <div class="my-2 space-y-1.5">
+      {#each noteImages as img}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="rounded-xl overflow-hidden border border-zinc-800/90 bg-zinc-950 relative shadow-md group/noteimg cursor-pointer"
+          onclick={(e) => {
+            e.stopPropagation();
+            previewImageModal = img.url;
+          }}
+          title="Clique para ampliar a imagem da nota"
+        >
+          <img
+            src={img.url}
+            alt={img.alt || 'Imagem da Nota'}
+            class="w-full max-h-36 object-cover filter brightness-95 contrast-105 group-hover/noteimg:scale-105 transition-transform duration-200 block {isSecretNode && !data?.revealed ? 'filter blur-[4px] hover:blur-none select-none' : ''}"
+            loading="lazy"
+          />
+          <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent p-1.5 flex items-center justify-between opacity-0 group-hover/noteimg:opacity-100 transition-opacity">
+            <span class="text-[10px] text-zinc-200 truncate italic">
+              {img.alt || 'Imagem da Nota'}
+            </span>
+            <Maximize2 class="w-3 h-3 text-amber-400 shrink-0" />
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
+  <!-- Description / GM Notes with Clean Text & Secret Blur Filter -->
+  {#if cleanDescription}
     <p
       class="text-xs text-zinc-400 leading-relaxed mt-1.5 line-clamp-3 transition duration-150 {isSecretNode && !data?.revealed ? 'filter blur-[1px] hover:blur-none select-none text-zinc-500' : ''}"
       title={isSecretNode ? 'Passe o rato para pré-visualizar notas secretas' : undefined}
     >
-      {data.description}
+      {cleanDescription}
     </p>
   {/if}
 
@@ -430,3 +606,34 @@
     </div>
   {/if}
 </div>
+
+{#if previewImageModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+    onclick={(e) => {
+      e.stopPropagation();
+      previewImageModal = null;
+    }}
+  >
+    <div class="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
+      <img
+        src={previewImageModal}
+        alt="Imagem ampliada da nota"
+        class="max-w-full max-h-[85vh] object-contain rounded-2xl border border-zinc-700 shadow-2xl"
+      />
+      <button
+        type="button"
+        onclick={(e) => {
+          e.stopPropagation();
+          previewImageModal = null;
+        }}
+        class="mt-3 px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 rounded-xl text-xs font-semibold border border-zinc-700 transition cursor-pointer flex items-center gap-1.5"
+      >
+        <X class="w-3.5 h-3.5 text-zinc-400" />
+        <span>Fechar Visualização</span>
+      </button>
+    </div>
+  </div>
+{/if}

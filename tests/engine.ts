@@ -657,10 +657,26 @@ export function validateCampaignSchema(raw: any): { valid: boolean; errors: stri
 export function migrateLegacyCampaign(raw: any): CampaignData {
   const validated = validateCampaignSchema(raw);
   if (validated.data) {
+    if (Array.isArray(raw.fileSystem)) {
+      validated.data.fileSystem = raw.fileSystem;
+    }
+    if (raw.activeScopeFolderId !== undefined) {
+      validated.data.activeScopeFolderId = raw.activeScopeFolderId;
+    }
+    if (raw.customCalendar) {
+      validated.data.customCalendar = raw.customCalendar;
+    }
+    if (Array.isArray(raw.playlists)) {
+      validated.data.playlists = raw.playlists;
+    }
+    if (raw.atlas) {
+      validated.data.atlas = raw.atlas;
+    }
     // Fill in default node properties if missing
     validated.data.nodes = validated.data.nodes.map((node: any) => ({
       ...node,
       data: {
+        ...node.data,
         id: node.id,
         type: node.data?.type || 'npc',
         title: node.data?.title || 'Entidade',
@@ -670,6 +686,13 @@ export function migrateLegacyCampaign(raw: any): CampaignData {
         isSecret: Boolean(node.data?.isSecret),
         revealed: node.data?.revealed ?? !node.data?.isSecret,
         color: node.data?.color || '#d4a359',
+        folderId: node.data?.folderId || null,
+        content: node.data?.content || '',
+        combatStats: node.data?.combatStats,
+        wikilinks: Array.isArray(node.data?.wikilinks) ? node.data.wikilinks : [],
+        tables: Array.isArray(node.data?.tables) ? node.data.tables : [],
+        notes: Array.isArray(node.data?.notes) ? node.data.notes : [],
+        imageUrl: node.data?.imageUrl,
       },
     }));
     return validated.data;

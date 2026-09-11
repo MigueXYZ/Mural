@@ -139,6 +139,91 @@
       default: return 'text-zinc-400';
     }
   }
+
+  // Shared drag-and-drop state across all tree items and explorer
+  let isDragOverFolder = $state(false);
+
+  function handleDragStart(e: DragEvent) {
+    if (isRenaming) {
+      e.preventDefault();
+      return;
+    }
+    campaignStore.setDraggedFileId(item.id);
+    if (e.dataTransfer) {
+      e.dataTransfer.setData('application/mural-file-id', item.id);
+      e.dataTransfer.setData('text/plain', item.id);
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  }
+
+  function handleDragEnd() {
+    campaignStore.setDraggedFileId(null);
+    isDragOverFolder = false;
+  }
+
+  function handleDragOver(e: DragEvent) {
+    if (item.type !== 'folder') return;
+    const draggedId = campaignStore.draggedFileId || (e.dataTransfer?.types?.includes('application/mural-file-id') ? 'pending' : null);
+    if (!draggedId) return;
+
+    if (campaignStore.draggedFileId) {
+      if (campaignStore.draggedFileId === item.id || isDescendantOf(item.id, campaignStore.draggedFileId)) {
+        return;
+      }
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+    isDragOverFolder = true;
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only clear if the pointer actually left this row element (not entered a child)
+    const currentTarget = e.currentTarget as HTMLElement | null;
+    const relatedTarget = e.relatedTarget as Node | null;
+    if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    isDragOverFolder = false;
+  }
+
+  function handleDrop(e: DragEvent) {
+    if (item.type !== 'folder') return;
+    e.preventDefault();
+    e.stopPropagation();
+    isDragOverFolder = false;
+
+    const draggedId =
+      campaignStore.draggedFileId ||
+      e.dataTransfer?.getData('application/mural-file-id') ||
+      e.dataTransfer?.getData('text/plain');
+
+    campaignStore.setDraggedFileId(null);
+
+    if (!draggedId || draggedId === item.id) return;
+
+    // Prevent dragging a folder into itself or its own descendants
+    if (isDescendantOf(item.id, draggedId)) return;
+
+    campaignStore.moveFileOrFolder(draggedId, item.id);
+    isOpen = true;
+  }
+
+  function isDescendantOf(potentialChildId: string, potentialParentId: string): boolean {
+    const fs = campaignStore.fileSystem || [];
+    let cur = fs.find((f) => f.id === potentialChildId);
+    while (cur && cur.parentId) {
+      if (cur.parentId === potentialParentId) return true;
+      const pid = cur.parentId;
+      cur = fs.find((f) => f.id === pid);
+    }
+    return false;
+  }
 </script>
 
 <div class="select-none text-xs">
@@ -147,13 +232,21 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     onclick={handleItemClick}
+    draggable={!isRenaming}
+    ondragstart={handleDragStart}
+    ondragend={handleDragEnd}
+    ondragover={handleDragOver}
+    ondragleave={handleDragLeave}
+    ondrop={handleDrop}
     class="group flex items-center justify-between py-1 px-2 rounded-lg cursor-pointer transition-colors relative {isSelected
       ? 'bg-amber-500/15 text-amber-300 font-semibold'
+      : isDragOverFolder
+      ? 'bg-amber-500/25 text-amber-200 ring-2 ring-amber-400 border border-amber-400'
       : 'text-zinc-300 hover:bg-zinc-800/70 hover:text-zinc-100'}"
     style="padding-left: {level * 16 + 8}px;"
   >
     <!-- Left Icon & Title -->
-    <div class="flex items-center gap-1.5 flex-1 min-w-0 pr-1">
+    <div class="flex items-center gap-1.5 flex-1 min-w-0 pr-1 pointer-events-none">
       {#if item.type === 'folder'}
         <span class="text-zinc-500 hover:text-zinc-300">
           {#if isOpen}
@@ -180,7 +273,7 @@
           onblur={handleSaveRename}
           onkeydown={handleRenameKeyDown}
           autofocus
-          class="flex-1 px-1.5 py-0.5 rounded bg-zinc-950 border border-amber-400 text-xs text-zinc-100 outline-none"
+          class="flex-1 px-1.5 py-0.5 rounded bg-zinc-950 border border-amber-400 text-xs text-zinc-100 outline-none pointer-events-auto"
         />
       {:else}
         <span class="truncate {item.isMissionFolder ? 'font-bold text-amber-300' : ''}">

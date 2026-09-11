@@ -30,6 +30,15 @@
   background: rgba(100, 115, 140, 0.6);
 }
 
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Svelte Flow dark customization */
 .svelte-flow {
   background-color: #0b0d11 !important;
