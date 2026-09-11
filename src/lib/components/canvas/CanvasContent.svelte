@@ -142,15 +142,37 @@
   }
 
   // Canvas Drag & Drop handlers for dragging files from Dossiê & Notas onto the canvas
+  let canvasDragOver = $state(false);
+
   function handleCanvasDragOver(e: DragEvent) {
-    if (e.dataTransfer?.types.includes('application/mural-file-id')) {
+    // Accept if campaignStore has a dragged file id (reliable in Tauri/WebKit)
+    // OR if the dataTransfer types include our MIME type
+    if (
+      campaignStore.draggedFileId ||
+      e.dataTransfer?.types.includes('application/mural-file-id') ||
+      e.dataTransfer?.types.includes('text/plain')
+    ) {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      canvasDragOver = true;
+    }
+  }
+
+  function handleCanvasDragLeave(e: DragEvent) {
+    // Only clear if leaving the root element (not entering a child)
+    const related = e.relatedTarget as Node | null;
+    if (!related || !(e.currentTarget as HTMLElement).contains(related)) {
+      canvasDragOver = false;
     }
   }
 
   function handleCanvasDrop(e: DragEvent) {
-    const fileId = e.dataTransfer?.getData('application/mural-file-id');
+    canvasDragOver = false;
+    // Prefer the store-level id (immune to Tauri/WebKit dataTransfer quirks)
+    const fileId =
+      campaignStore.draggedFileId ||
+      e.dataTransfer?.getData('application/mural-file-id') ||
+      e.dataTransfer?.getData('text/plain');
     if (!fileId) return;
 
     e.preventDefault();
@@ -539,8 +561,17 @@
   class="w-full h-full bg-[#0b0d11] relative overflow-hidden select-none"
   oncontextmenu={handleCanvasContextMenu}
   ondragover={handleCanvasDragOver}
+  ondragleave={handleCanvasDragLeave}
   ondrop={handleCanvasDrop}
 >
+  <!-- Drop Indicator Overlay -->
+  {#if canvasDragOver}
+    <div class="pointer-events-none absolute inset-0 z-50 border-2 border-dashed border-amber-400/60 rounded-sm bg-amber-500/5 flex items-center justify-center">
+      <div class="px-4 py-2 rounded-xl bg-zinc-950/80 border border-amber-500/40 text-amber-300 text-xs font-semibold backdrop-blur-sm shadow-xl flex items-center gap-2">
+        <span>📄</span> Largar para adicionar ao mural
+      </div>
+    </div>
+  {/if}
   <!-- Top Floating Master Toolbar -->
   <div
     class="canvas-toolbar absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 max-w-[calc(100%-24px)]"

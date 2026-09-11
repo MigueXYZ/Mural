@@ -152,7 +152,7 @@
     if (e.dataTransfer) {
       e.dataTransfer.setData('application/mural-file-id', item.id);
       e.dataTransfer.setData('text/plain', item.id);
-      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.effectAllowed = 'copyMove';
     }
   }
 

@@ -52,6 +52,7 @@
     ArrowLeftRight,
   } from 'lucide-svelte';
   import { renderMarkdown, extractWikilinkTargets } from '../../utils/markdown';
+  import { appState } from '../../stores/appState.svelte';
 
   const node = $derived(campaignStore.editingNode);
   const nodesStore = campaignStore.nodes;
@@ -494,6 +495,19 @@
       handleSave();
     }
   }
+
+  function openWikilinkNote(linkName: string) {
+    const fs = campaignStore.fileSystem || [];
+    const found = fs.find(
+      (f) => f.type === 'file' && f.name.toLowerCase() === linkName.toLowerCase()
+    );
+    if (found) {
+      // Close the current modal first, then switch to docs tab and open the file
+      campaignStore.closeNodeEditor();
+      appState.activeTab = 'docs';
+      campaignStore.openFile(found.id);
+    }
+  }
 </script>
 
 <svelte:window onkeydown={handleKeyDown} />
@@ -835,9 +849,20 @@
           <span>🔗</span> Conexões detetadas:
         </span>
         {#each detectedWikilinks as link}
-          <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 font-mono text-[10px] border border-amber-500/30">
+          {@const linkedFile = (campaignStore.fileSystem || []).find(
+            (f) => f.type === 'file' && f.name.toLowerCase() === link.toLowerCase()
+          )}
+          <!-- svelte-ignore a11y_consider_explicit_label -->
+          <button
+            type="button"
+            onclick={() => openWikilinkNote(link)}
+            title={linkedFile ? `Abrir nota: ${link}` : `Nota não encontrada: ${link}`}
+            class="px-1.5 py-0.5 rounded font-mono text-[10px] border transition cursor-pointer {linkedFile
+              ? 'bg-amber-500/20 text-amber-200 border-amber-500/30 hover:bg-amber-500/35 hover:text-amber-100'
+              : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 cursor-not-allowed opacity-60'}"
+          >
             [[{link}]]
-          </span>
+          </button>
         {/each}
       </div>
     {/if}
