@@ -11,7 +11,10 @@
   ];
 </script>
 
-<aside class="w-14 border-r border-zinc-800/80 bg-zinc-950 flex flex-col items-center justify-between py-4 select-none z-20">
+<aside
+  class="w-14 border-r border-zinc-800/80 bg-zinc-950 flex flex-col items-center justify-between py-4 select-none z-20 flex-shrink-0"
+  style="zoom: var(--ui-scale, 1);"
+>
   <div class="flex flex-col items-center gap-2">
     {#each navItems as item}
       {@const Icon = item.icon}

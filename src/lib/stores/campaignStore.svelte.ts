@@ -61,6 +61,9 @@ class CampaignStore {
   redoStack = $state<string[]>([]);
   private isRestoringHistory = false;
   private maxHistorySize = 50;
+  private liveNodeBaselines = new Map<string, EntityNodeData>();
+  private liveEdgeBaselines = new Map<string, CanvasRelationEdgeData>();
+  private copiedEdges: Edge<CanvasRelationEdgeData>[] = [];
 
   canUndo = $derived(this.undoStack.length > 0);
   canRedo = $derived(this.redoStack.length > 0);
@@ -124,6 +127,8 @@ class CampaignStore {
   }
 
   undo() {
+    this.liveNodeBaselines.clear();
+    this.liveEdgeBaselines.clear();
     if (this.undoStack.length === 0) return;
     try {
       const currentSnapshot = JSON.stringify(this.exportCurrentCampaign());
@@ -146,6 +151,8 @@ class CampaignStore {
   }
 
   redo() {
+    this.liveNodeBaselines.clear();
+    this.liveEdgeBaselines.clear();
     if (this.redoStack.length === 0) return;
     try {
       const currentSnapshot = JSON.stringify(this.exportCurrentCampaign());
@@ -222,6 +229,8 @@ class CampaignStore {
     this.selectedEntity = null;
     this.editingNode = null;
     this.editingEdge = null;
+    this.liveNodeBaselines.clear();
+    this.liveEdgeBaselines.clear();
     this.undoStack = [];
     this.redoStack = [];
     this.isDirty = false;
@@ -262,9 +271,17 @@ class CampaignStore {
 
     const currentEdges = get(this.edges);
     const edgeMap = new Map(currentEdges.map((e) => [e.id, e]));
-    this.campaign.edges = (this.campaign.edges || []).map((e) => {
+    const updatedEdges = (this.campaign.edges || []).map((e) => {
       return edgeMap.get(e.id) || e;
     });
+    const existingIds = new Set(updatedEdges.map((e) => e.id));
+    for (const edge of currentEdges) {
+      if (!existingIds.has(edge.id)) {
+        updatedEdges.push(JSON.parse(JSON.stringify(edge)));
+        existingIds.add(edge.id);
+      }
+    }
+    this.campaign.edges = updatedEdges;
   }
 
   setCanvasScope(folderId: string | 'all') {
@@ -518,10 +535,58 @@ class CampaignStore {
 
   closeNodeEditor() {
     this.editingNode = null;
+    this.liveNodeBaselines.clear();
+    this.liveEdgeBaselines.clear();
+  }
+
+  updateNodeDataLive(id: string, partial: Partial<EntityNodeData>) {
+    if (!this.liveNodeBaselines.has(id)) {
+      const masterNode = (this.campaign.nodes || []).find((n) => n.id === id);
+      if (masterNode) {
+        this.liveNodeBaselines.set(id, JSON.parse(JSON.stringify(masterNode.data)));
+      } else {
+        const currentNode = get(this.nodes).find((n) => n.id === id);
+        if (currentNode) {
+          this.liveNodeBaselines.set(id, JSON.parse(JSON.stringify(currentNode.data)));
+        }
+      }
+    }
+
+    // Immediate reactive update without polluting undo stack
+    this.nodes.update((list) =>
+      list.map((node) => {
+        if (node.id === id) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              ...partial,
+            },
+          };
+        }
+        return node;
+      })
+    );
+
+    const masterNode = (this.campaign.nodes || []).find((n) => n.id === id);
+    if (masterNode) {
+      masterNode.data = { ...masterNode.data, ...partial };
+    }
   }
 
   updateNodeData(id: string, partial: Partial<EntityNodeData>) {
+    if (this.liveNodeBaselines.has(id)) {
+      const baseline = this.liveNodeBaselines.get(id)!;
+      this.liveNodeBaselines.delete(id);
+      this.nodes.update((list) =>
+        list.map((n) => (n.id === id ? { ...n, data: { ...baseline } } : n))
+      );
+      const master = (this.campaign.nodes || []).find((n) => n.id === id);
+      if (master) master.data = { ...baseline };
+    }
+
     this.recordSnapshot();
+
     this.nodes.update((list) =>
       list.map((node) => {
         if (node.id === id) {
@@ -556,6 +621,7 @@ class CampaignStore {
   }
 
   deleteNode(id: string) {
+    this.liveNodeBaselines.delete(id);
     this.recordSnapshot();
     this.nodes.update((list) => list.filter((n) => n.id !== id));
     this.edges.update((list) => list.filter((e) => e.source !== id && e.target !== id));
@@ -998,10 +1064,24 @@ class CampaignStore {
 
   closeEdgeEditor() {
     this.editingEdge = null;
+    this.liveNodeBaselines.clear();
+    this.liveEdgeBaselines.clear();
   }
 
-  updateEdgeData(id: string, partial: Partial<CanvasRelationEdgeData>) {
-    this.recordSnapshot();
+  updateEdgeDataLive(id: string, partial: Partial<CanvasRelationEdgeData>) {
+    if (!this.liveEdgeBaselines.has(id)) {
+      const masterEdge = (this.campaign.edges || []).find((e) => e.id === id);
+      if (masterEdge) {
+        this.liveEdgeBaselines.set(id, JSON.parse(JSON.stringify(masterEdge.data || {})));
+      } else {
+        const currentEdge = get(this.edges).find((e) => e.id === id);
+        if (currentEdge) {
+          this.liveEdgeBaselines.set(id, JSON.parse(JSON.stringify(currentEdge.data || {})));
+        }
+      }
+    }
+
+    // Immediate reactive update without polluting undo stack
     this.edges.update((list) =>
       list.map((edge) => {
         if (edge.id === id) {
@@ -1016,12 +1096,197 @@ class CampaignStore {
         return edge;
       })
     );
+
+    const masterEdge = (this.campaign.edges || []).find((e) => e.id === id);
+    if (masterEdge) {
+      masterEdge.data = { ...(masterEdge.data || { label: '', relationType: 'neutral' }), ...partial };
+    }
+  }
+
+  updateEdgeData(id: string, partial: Partial<CanvasRelationEdgeData>) {
+    if (this.liveEdgeBaselines.has(id)) {
+      const baseline = this.liveEdgeBaselines.get(id)!;
+      this.liveEdgeBaselines.delete(id);
+      this.edges.update((list) =>
+        list.map((e) => (e.id === id ? { ...e, data: { ...baseline } } : e))
+      );
+      const masterEdge = (this.campaign.edges || []).find((e) => e.id === id);
+      if (masterEdge) {
+        masterEdge.data = { ...baseline };
+      }
+    }
+
+    this.recordSnapshot();
+
+    this.edges.update((list) =>
+      list.map((edge) => {
+        if (edge.id === id) {
+          return {
+            ...edge,
+            data: {
+              ...(edge.data || { label: '', relationType: 'neutral' }),
+              ...partial,
+            },
+          };
+        }
+        return edge;
+      })
+    );
+    const masterEdge = (this.campaign.edges || []).find((e) => e.id === id);
+    if (masterEdge) {
+      masterEdge.data = { ...(masterEdge.data || { label: '', relationType: 'neutral' }), ...partial };
+    }
     this.markDirty();
   }
 
+  addEdge(newEdge: CanvasRelationEdge) {
+    this.recordSnapshot();
+    this.edges.update((list) => [...list, newEdge]);
+    this.campaign.edges = [...(this.campaign.edges || []), JSON.parse(JSON.stringify(newEdge))];
+    this.markDirty();
+  }
+
+  reconnectEdge(
+    oldEdgeId: string,
+    newConnection: {
+      source: string;
+      target: string;
+      sourceHandle?: string | null;
+      targetHandle?: string | null;
+    }
+  ): boolean {
+    if (!newConnection.source || !newConnection.target) {
+      return false;
+    }
+    if (newConnection.source === newConnection.target) {
+      return false;
+    }
+
+    const currentEdges = get(this.edges);
+    const inCurrent = currentEdges.some((e) => e.id === oldEdgeId);
+    const inCampaign = (this.campaign.edges || []).some((e) => e.id === oldEdgeId);
+
+    if (!inCurrent && !inCampaign) {
+      return false;
+    }
+
+    this.recordSnapshot();
+    this.liveEdgeBaselines.delete(oldEdgeId);
+
+    let updatedEdge: CanvasRelationEdge | null = null;
+
+    this.edges.update((list) =>
+      list.map((edge) => {
+        if (edge.id === oldEdgeId) {
+          updatedEdge = {
+            ...edge,
+            source: newConnection.source,
+            target: newConnection.target,
+            sourceHandle:
+              newConnection.sourceHandle !== undefined ? newConnection.sourceHandle : edge.sourceHandle,
+            targetHandle:
+              newConnection.targetHandle !== undefined ? newConnection.targetHandle : edge.targetHandle,
+          };
+          return updatedEdge;
+        }
+        return edge;
+      })
+    );
+
+    this.campaign.edges = (this.campaign.edges || []).map((edge) => {
+      if (edge.id === oldEdgeId) {
+        return updatedEdge
+          ? JSON.parse(JSON.stringify(updatedEdge))
+          : {
+              ...edge,
+              source: newConnection.source,
+              target: newConnection.target,
+              sourceHandle:
+                newConnection.sourceHandle !== undefined ? newConnection.sourceHandle : edge.sourceHandle,
+              targetHandle:
+                newConnection.targetHandle !== undefined ? newConnection.targetHandle : edge.targetHandle,
+            };
+      }
+      return edge;
+    });
+
+    if (this.editingEdge?.id === oldEdgeId && updatedEdge) {
+      this.editingEdge = JSON.parse(JSON.stringify(updatedEdge));
+    }
+
+    this.markDirty();
+    return true;
+  }
+
+  copyEdges(edgesToCopy?: Edge<CanvasRelationEdgeData>[]): number {
+    const toCopy =
+      edgesToCopy && edgesToCopy.length > 0
+        ? edgesToCopy
+        : get(this.edges).filter((e) => e.selected);
+
+    if (toCopy.length === 0) {
+      return 0;
+    }
+
+    this.copiedEdges = JSON.parse(JSON.stringify(toCopy));
+    return this.copiedEdges.length;
+  }
+
+  copySelectedEdges(): number {
+    return this.copyEdges();
+  }
+
+  hasCopiedEdges(): boolean {
+    return this.copiedEdges.length > 0;
+  }
+
+  pasteEdges(offsetStep: number = 20): Edge<CanvasRelationEdgeData>[] {
+    if (!this.hasCopiedEdges()) return [];
+
+    this.recordSnapshot();
+
+    // Deselect currently selected edges
+    this.edges.update((list) => list.map((e) => (e.selected ? { ...e, selected: false } : e)));
+
+    const pastedList: Edge<CanvasRelationEdgeData>[] = [];
+
+    for (const orig of this.copiedEdges) {
+      const currentOffset = typeof orig.data?.offset === 'number' ? orig.data.offset : 20;
+      const newOffset = currentOffset + offsetStep;
+
+      // Update baseline in clipboard for consecutive paste offsets
+      if (orig.data) {
+        orig.data.offset = newOffset;
+      }
+
+      const newId = `edge-${orig.source}-${orig.target}-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 7)}`;
+
+      const cloned: Edge<CanvasRelationEdgeData> = {
+        ...JSON.parse(JSON.stringify(orig)),
+        id: newId,
+        selected: true,
+        data: {
+          ...JSON.parse(JSON.stringify(orig.data || {})),
+          offset: newOffset,
+        },
+      };
+
+      pastedList.push(cloned);
+    }
+
+    this.edges.update((list) => [...list, ...pastedList]);
+    this.campaign.edges = [...(this.campaign.edges || []), ...JSON.parse(JSON.stringify(pastedList))];
+    this.markDirty();
+    return pastedList;
+  }
+
   deleteEdge(id: string) {
+    this.liveEdgeBaselines.delete(id);
     this.recordSnapshot();
     this.edges.update((list) => list.filter((e) => e.id !== id));
+    this.campaign.edges = (this.campaign.edges || []).filter((e) => e.id !== id);
     if (this.editingEdge?.id === id) {
       this.editingEdge = null;
     }

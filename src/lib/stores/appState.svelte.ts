@@ -10,8 +10,65 @@ class AppState {
   campaigns = $state<CampaignData[]>(sampleCampaigns);
   searchFilter = $state<string>('');
 
+  // UI Scale Subsystem (Requirement R1)
+  uiScale = $state<number>(1.0);
+
   constructor() {
+    this.initUiScale();
     this.initCampaignsList();
+  }
+
+  initUiScale() {
+    if (typeof window !== 'undefined' || typeof localStorage !== 'undefined') {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const saved = localStorage.getItem('mural_ui_scale');
+          if (saved) {
+            const parsed = parseFloat(saved);
+            if (!isNaN(parsed) && parsed >= 0.75 && parsed <= 1.5) {
+              this.setUiScale(parsed, false);
+              return;
+            }
+          }
+          const globalSettings = localStorage.getItem('mural_global_settings');
+          if (globalSettings) {
+            const parsed = JSON.parse(globalSettings);
+            if (parsed?.uiScale && !isNaN(parsed.uiScale)) {
+              this.setUiScale(parsed.uiScale, false);
+              return;
+            }
+          }
+        }
+        if (campaignStore?.campaign?.settings?.uiScale) {
+          this.setUiScale(campaignStore.campaign.settings.uiScale, false);
+          return;
+        }
+      } catch (e) {
+        console.warn('Error loading mural_ui_scale:', e);
+      }
+      this.setUiScale(1.0, false);
+    }
+  }
+
+  setUiScale(val: number, persist = true) {
+    const clamped = Math.min(1.5, Math.max(0.75, Math.round(val * 100) / 100));
+    this.uiScale = clamped;
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.style.setProperty('--ui-scale', clamped.toString());
+    }
+    if (persist && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('mural_ui_scale', clamped.toString());
+      } catch (e) {
+        console.warn('Error saving mural_ui_scale to localStorage:', e);
+      }
+    }
+    if (campaignStore?.campaign) {
+      if (!campaignStore.campaign.settings) {
+        campaignStore.campaign.settings = {};
+      }
+      campaignStore.campaign.settings.uiScale = clamped;
+    }
   }
 
   async initCampaignsList() {
@@ -54,6 +111,9 @@ class AppState {
     }
     if (found) {
       campaignStore.loadCampaign(found);
+      if (found.settings?.uiScale && typeof localStorage !== 'undefined' && !localStorage.getItem('mural_ui_scale')) {
+        this.setUiScale(found.settings.uiScale, false);
+      }
       this.currentView = 'campaign';
     } else {
       storageService
@@ -61,6 +121,9 @@ class AppState {
         .then((camp) => {
           if (camp) {
             campaignStore.loadCampaign(camp);
+            if (camp.settings?.uiScale && typeof localStorage !== 'undefined' && !localStorage.getItem('mural_ui_scale')) {
+              this.setUiScale(camp.settings.uiScale, false);
+            }
             this.campaigns = [camp, ...this.campaigns.filter((c) => c.id !== camp.id)];
             this.currentView = 'campaign';
           }

@@ -103,6 +103,7 @@
   });
 
   const activeColor = $derived(data?.color || data?.colorTheme || typeConfig.defaultColor);
+  const activeTextColor = $derived(data?.textColor || activeColor);
   const IconComponent = $derived(getEntityIcon(data?.icon, data?.type || data?.category));
   const isSecretNode = $derived(Boolean(data?.isSecret || data?.type === 'secret'));
 
@@ -312,7 +313,7 @@
       </div>
       <div class="flex items-center gap-1.5">
         <span class="w-1.5 h-1.5 rounded-full" style="background-color: {activeColor};"></span>
-        <span class="text-[10px] font-bold tracking-wider uppercase" style="color: {activeColor};">
+        <span class="text-[10px] font-bold tracking-wider uppercase" style="color: {activeTextColor};">
           {data?.subtitle || typeConfig.label}
         </span>
       </div>
@@ -327,7 +328,10 @@
   </div>
 
   <!-- Main Title -->
-  <h3 class="text-sm font-bold text-zinc-100 tracking-tight leading-snug group-hover:text-amber-300 transition">
+  <h3
+    class="text-sm font-bold tracking-tight leading-snug group-hover:text-amber-300 transition {data?.textColor ? '' : 'text-zinc-100'}"
+    style={data?.textColor ? `color: ${data.textColor};` : ''}
+  >
     {data?.title || 'Sem Título'}
   </h3>
 

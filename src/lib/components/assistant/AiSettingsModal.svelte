@@ -1,6 +1,7 @@
 <!-- File: src/lib/components/assistant/AiSettingsModal.svelte -->
 <script lang="ts">
   import { campaignStore } from '../../stores/campaignStore.svelte';
+  import { appState } from '../../stores/appState.svelte';
   import { aiEngine } from '../../services/ai/aiProvider';
   import { audioEngine } from '../../services/audio/audioEngine.svelte';
   import {
@@ -118,6 +119,7 @@
     // 2. Update Campaign Settings
     const newSettings: CampaignSettings = {
       ...(campaignStore.campaign.settings || {}),
+      uiScale: appState.uiScale,
       theme,
       autoSaveIntervalMs,
       musicDirectoryPath: musicDirectoryPath.trim(),
@@ -168,13 +170,16 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
-    class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
     onclick={(e) => { if (e.target === e.currentTarget) isOpen = false; }}
     role="dialog"
     aria-modal="true"
     tabindex="-1"
   >
-    <div class="w-full max-w-2xl max-h-[90vh] bg-zinc-900 border border-zinc-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+    <div
+      class="w-full max-w-2xl bg-zinc-900 border border-zinc-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150"
+      style="zoom: var(--ui-scale, 1); max-height: calc(85vh / var(--ui-scale, 1)); max-width: calc(min(42rem, 90vw) / var(--ui-scale, 1));"
+    >
       <!-- Modal Header -->
       <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -315,6 +320,49 @@
                 placeholder="Breve resumo da investigação, antagonistas e objetivos centrais..."
                 class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 resize-none"
               ></textarea>
+            </div>
+
+            <!-- UI Scale Subsystem Controls (Requirement R1) -->
+            <div class="space-y-2 pt-3 border-t border-zinc-800">
+              <div class="flex items-center justify-between">
+                <div>
+                  <label for="ui-scale-slider-settings" class="block font-medium text-zinc-300">Escala Global da Interface (UI Scale)</label>
+                  <p class="text-[11px] text-zinc-500">
+                    Ajusta a dimensão das barras de ferramentas, menus e painéis laterais de forma consistente, mantendo o canvas e a precisão dos cliques operacionais.
+                  </p>
+                </div>
+                <span class="font-mono text-xs font-bold px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800 text-amber-400">
+                  {Math.round(appState.uiScale * 100)}%
+                </span>
+              </div>
+
+              <div class="flex items-center gap-3 pt-1">
+                <input
+                  id="ui-scale-slider-settings"
+                  type="range"
+                  min="0.75"
+                  max="1.50"
+                  step="0.05"
+                  value={appState.uiScale}
+                  oninput={(e) => appState.setUiScale(parseFloat((e.target as HTMLInputElement).value))}
+                  class="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg appearance-none"
+                />
+              </div>
+
+              <!-- Presets Rápidos -->
+              <div class="flex items-center gap-1.5 pt-1">
+                {#each [0.75, 0.90, 1.00, 1.10, 1.25, 1.50] as preset}
+                  <button
+                    type="button"
+                    onclick={() => appState.setUiScale(preset)}
+                    class="flex-1 py-1 text-[11px] font-mono rounded-lg border transition cursor-pointer {Math.abs(appState.uiScale - preset) < 0.01
+                      ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 font-bold'
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'}"
+                  >
+                    {Math.round(preset * 100)}%
+                  </button>
+                {/each}
+              </div>
             </div>
           </div>
 

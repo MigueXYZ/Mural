@@ -175,7 +175,10 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<header class="h-14 border-b border-zinc-800/80 bg-zinc-950/90 px-4 flex items-center justify-between select-none backdrop-blur-md z-20 sticky top-0">
+<header
+  class="h-14 border-b border-zinc-800/80 bg-zinc-950/90 px-4 flex items-center justify-between select-none backdrop-blur-md z-20 sticky top-0 flex-shrink-0"
+  style="zoom: var(--ui-scale, 1);"
+>
   <!-- Left info & Return to menu -->
   <div class="flex items-center gap-3">
     <button

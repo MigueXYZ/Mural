@@ -7,6 +7,7 @@
     MiniMap,
     useSvelteFlow,
     SelectionMode,
+    ConnectionMode,
     type NodeTypes,
     type EdgeTypes,
     type Connection,
@@ -16,6 +17,7 @@
   import EntityNode from './nodes/EntityNode.svelte';
   import CustomLabeledEdge from './edges/CustomLabeledEdge.svelte';
   import { campaignStore } from '../../stores/campaignStore.svelte';
+  import { appState } from '../../stores/appState.svelte';
   import {
     autoLayoutNodes,
     alignNodes,
@@ -54,6 +56,7 @@
     Tag,
     Boxes,
     Folder,
+    Sliders,
   } from 'lucide-svelte';
   import { get } from 'svelte/store';
   import type { RelationType } from '../../types';
@@ -81,6 +84,7 @@
   // Local Reactive State using Svelte 5 Runes
   let showLayoutDropdown = $state(false);
   let showEdgeFilterDropdown = $state(false);
+  let showUiScaleMenu = $state(false);
   let activeLayoutAlgo = $state<LayoutAlgorithm>('hierarchical');
 
   // Derive selection state
@@ -177,8 +181,6 @@
     if (!connection.source || !connection.target) return;
     if (connection.source === connection.target) return;
 
-    campaignStore.recordSnapshot();
-
     const newEdge: Edge<CanvasRelationEdgeData> = {
       id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
       source: connection.source,
@@ -195,8 +197,7 @@
       },
     };
 
-    edgesStore.update((list) => [...list, newEdge]);
-    campaignStore.markDirty();
+    campaignStore.addEdge(newEdge);
   }
 
   // 3.5. Native Svelte Flow Elements Deletion Callback
@@ -206,9 +207,9 @@
 
     if (deletedEdges && deletedEdges.length > 0) {
       campaignStore.recordSnapshot();
-      for (const e of deletedEdges) {
-        edgesStore.update((list) => list.filter((item) => item.id !== e.id));
-      }
+      const edgeIds = new Set(deletedEdges.map((e) => e.id));
+      edgesStore.update((list) => list.filter((item) => !edgeIds.has(item.id)));
+      campaignStore.campaign.edges = (campaignStore.campaign.edges || []).filter((e) => !edgeIds.has(e.id));
       changed = true;
     }
 
@@ -217,6 +218,10 @@
       const nodeSet = new Set(deletedNodes.map((n) => n.id));
       nodesStore.update((list) => list.filter((n) => !nodeSet.has(n.id)));
       edgesStore.update((list) => list.filter((e) => !nodeSet.has(e.source) && !nodeSet.has(e.target)));
+      campaignStore.campaign.nodes = (campaignStore.campaign.nodes || []).filter((n) => !nodeSet.has(n.id));
+      campaignStore.campaign.edges = (campaignStore.campaign.edges || []).filter(
+        (e) => !nodeSet.has(e.source) && !nodeSet.has(e.target)
+      );
       changed = true;
     }
 
@@ -284,19 +289,24 @@
         const nodeSet = new Set(selectedNodeIds);
         nodesStore.update((list) => list.filter((n) => !nodeSet.has(n.id)));
         edgesStore.update((list) => list.filter((e) => !nodeSet.has(e.source) && !nodeSet.has(e.target)));
+        campaignStore.campaign.nodes = (campaignStore.campaign.nodes || []).filter((n) => !nodeSet.has(n.id));
+        campaignStore.campaign.edges = (campaignStore.campaign.edges || []).filter(
+          (e) => !nodeSet.has(e.source) && !nodeSet.has(e.target)
+        );
       }
 
       // 3. Delete individually selected edges
       if (selectedEdgeIds.length > 0) {
         const edgeSet = new Set(selectedEdgeIds);
         edgesStore.update((list) => list.filter((e) => !edgeSet.has(e.id)));
+        campaignStore.campaign.edges = (campaignStore.campaign.edges || []).filter((e) => !edgeSet.has(e.id));
       }
 
       campaignStore.markDirty();
     }
   }
 
-  // 7. Keyboard Shortcuts (Delete / Backspace, Undo / Redo)
+  // 7. Keyboard Shortcuts (Delete / Backspace, Undo / Redo, Copy / Paste Edges)
   function handleKeyDown(event: KeyboardEvent) {
     const target = event.target as HTMLElement;
     const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
@@ -324,6 +334,18 @@
     } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
       event.preventDefault();
       campaignStore.redo();
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+      const currentEdges = get(edgesStore);
+      const selectedEdges = currentEdges.filter((e) => e.selected);
+      if (selectedEdges.length > 0) {
+        event.preventDefault();
+        campaignStore.copyEdges(selectedEdges);
+      }
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+      if (campaignStore.hasCopiedEdges()) {
+        event.preventDefault();
+        campaignStore.pasteEdges();
+      }
     }
   }
 </script>
@@ -332,7 +354,10 @@
 
 <div class="w-full h-full bg-[#0b0d11] relative overflow-hidden select-none">
   <!-- Top Floating Master Toolbar -->
-  <div class="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 max-w-[calc(100%-24px)]">
+  <div
+    class="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 max-w-[calc(100%-24px)]"
+    style="zoom: var(--ui-scale, 1); transform-origin: top left;"
+  >
     <!-- Group 1: Entity Creation Buttons -->
     <div class="flex items-center gap-1 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl">
       <span class="text-[10px] font-bold text-zinc-500 uppercase px-1.5 hidden sm:inline">Adicionar:</span>
@@ -685,7 +710,10 @@
   </div>
 
   <!-- Top-Right Floating Viewport Controls -->
-  <div class="absolute top-3 right-3 z-10 flex items-center gap-1 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl">
+  <div
+    class="absolute top-3 right-3 z-10 flex items-center gap-1 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-xl"
+    style="zoom: var(--ui-scale, 1); transform-origin: top right;"
+  >
     <button
       type="button"
       onclick={() => fitView({ duration: 400, padding: 0.2 })}
@@ -721,6 +749,67 @@
     >
       1:1
     </button>
+
+    <!-- Divider -->
+    <div class="w-px h-4 bg-zinc-800 mx-0.5"></div>
+
+    <!-- UI Scale Subsystem Quick Selector (Requirement R1) -->
+    <div class="relative">
+      <button
+        type="button"
+        onclick={() => (showUiScaleMenu = !showUiScaleMenu)}
+        class="px-2 py-1 rounded-lg text-[11px] font-mono text-zinc-300 hover:text-amber-300 hover:bg-zinc-800 transition cursor-pointer flex items-center gap-1.5"
+        title="Ajustar Escala Global da Interface (UI Scale)"
+      >
+        <Sliders class="w-3 h-3 text-amber-400" />
+        <span>{Math.round(appState.uiScale * 100)}%</span>
+      </button>
+
+      {#if showUiScaleMenu}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          onclick={() => (showUiScaleMenu = false)}
+          class="fixed inset-0 z-30 cursor-default"
+        ></div>
+        <div class="absolute right-0 top-full mt-1.5 w-52 rounded-xl bg-zinc-900 border border-zinc-700/90 shadow-2xl p-3 z-40 space-y-2.5 animate-in fade-in zoom-in-95 duration-100">
+          <div class="flex items-center justify-between text-xs font-semibold text-zinc-300">
+            <span class="flex items-center gap-1 text-[11px] uppercase tracking-wider font-bold text-zinc-400">
+              <Sliders class="w-3 h-3 text-amber-400" />
+              Escala da UI
+            </span>
+            <span class="font-mono text-xs font-bold text-amber-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">
+              {Math.round(appState.uiScale * 100)}%
+            </span>
+          </div>
+
+          <input
+            type="range"
+            min="0.75"
+            max="1.50"
+            step="0.05"
+            value={appState.uiScale}
+            oninput={(e) => appState.setUiScale(parseFloat((e.target as HTMLInputElement).value))}
+            class="w-full accent-amber-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg appearance-none"
+          />
+
+          <!-- Preset Buttons: 75%, 90%, 100%, 110%, 125%, 150% -->
+          <div class="grid grid-cols-3 gap-1 pt-1">
+            {#each [0.75, 0.90, 1.00, 1.10, 1.25, 1.50] as preset}
+              <button
+                type="button"
+                onclick={() => { appState.setUiScale(preset); showUiScaleMenu = false; }}
+                class="py-1 text-[10px] font-mono rounded-md border transition cursor-pointer text-center {Math.abs(appState.uiScale - preset) < 0.01
+                  ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 font-bold'
+                  : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'}"
+              >
+                {Math.round(preset * 100)}%
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </div>
   </div>
 
   <!-- Empty Canvas Watermark -->
@@ -744,6 +833,7 @@
     edges={edgesStore}
     {nodeTypes}
     {edgeTypes}
+    connectionMode={ConnectionMode.Loose}
     defaultEdgeOptions={{
       type: 'customLabeledEdge',
     }}

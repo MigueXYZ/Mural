@@ -120,6 +120,7 @@ export interface EntityNodeData extends Record<string, unknown> {
   icon?: string; // Lucide icon identifier (e.g. 'user', 'shield', 'skull', 'sword', 'file-text', 'dices')
   color?: string; // Primary accent color hex (e.g. '#d4a359', '#f87171')
   colorTheme?: string; // Alias for color
+  textColor?: string; // Explicit text/title color hex (US R3)
 
   // File Explorer & Document Editor Extensions
   folderId?: string | null;
@@ -150,7 +151,10 @@ export interface CanvasRelationEdgeData extends Record<string, unknown> {
   bidirectional?: boolean;
   notes?: string;
   color?: string;
+  textColor?: string; // Explicit edge label text color hex (US R3)
   icon?: string;
+  offset?: number; // Routing offset for parallel duplicated edges (US R5)
+  curvature?: number; // Curvature displacement for bezier curves
 }
 
 export type CanvasRelationEdge = Edge<CanvasRelationEdgeData>;
@@ -317,6 +321,9 @@ export interface CampaignSettings {
   aiModel?: string;
   modelName?: string;
   ollamaEndpoint?: string;
+
+  // UI Scale Subsystem (Requirement R1)
+  uiScale?: number; // 0.75 to 1.50 (default: 1.0)
 
   // Music & Audio Settings
   musicDirectoryPath?: string;

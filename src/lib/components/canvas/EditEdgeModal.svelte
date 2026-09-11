@@ -1,6 +1,7 @@
 <!-- File: src/lib/components/canvas/EditEdgeModal.svelte -->
 <script lang="ts">
   import { campaignStore } from '../../stores/campaignStore.svelte';
+  import ColorPicker from '../ui/ColorPicker.svelte';
   import type { RelationType, EdgePathType, CanvasRelationEdgeData } from '../../types';
   import {
     X,
@@ -30,6 +31,7 @@
   let bidirectional = $state(false);
   let notes = $state('');
   let customColor = $state('#38bdf8');
+  let textColor = $state('');
   let selectedIcon = $state('tag');
 
   // Synchronize state when editingEdge changes
@@ -42,6 +44,7 @@
       bidirectional = Boolean(data.bidirectional);
       notes = data.notes || '';
       customColor = (data.color as string) || '#38bdf8';
+      textColor = (data.textColor as string) || '';
       selectedIcon = (data.icon as string) || 'tag';
     }
   });
@@ -153,6 +156,31 @@
     }
   }
 
+  function handleEdgeColorLiveSync(newColor: string) {
+    customColor = newColor;
+    if (edge?.id) {
+      campaignStore.updateEdgeDataLive(edge.id, { color: newColor });
+    }
+  }
+
+  function handleEdgeTextColorLiveSync(newTextColor: string) {
+    textColor = newTextColor;
+    if (edge?.id) {
+      campaignStore.updateEdgeDataLive(edge.id, { textColor: newTextColor || undefined });
+    }
+  }
+
+  function handleCancel() {
+    if (edge?.id) {
+      const data = (edge.data || {}) as CanvasRelationEdgeData;
+      campaignStore.updateEdgeDataLive(edge.id, {
+        color: data.color,
+        textColor: data.textColor,
+      });
+    }
+    campaignStore.closeEdgeEditor();
+  }
+
   function handleSave() {
     if (edge) {
       campaignStore.updateEdgeData(edge.id, {
@@ -162,6 +190,9 @@
         bidirectional,
         notes: notes.trim(),
         color: relationType === 'custom' ? customColor : undefined,
+        textColor:
+          textColor.trim() ||
+          (relationType === 'custom' && customColor ? customColor : undefined),
         icon: selectedIcon !== 'tag' || relationType === 'custom' ? selectedIcon : undefined,
       });
       campaignStore.closeEdgeEditor();
@@ -176,8 +207,9 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (!edge) return;
     if (e.key === 'Escape') {
-      campaignStore.closeEdgeEditor();
+      handleCancel();
     } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       handleSave();
     }
@@ -193,7 +225,7 @@
   <div
     class="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center z-50 p-4"
     onclick={(e) => {
-      if (e.target === e.currentTarget) campaignStore.closeEdgeEditor();
+      if (e.target === e.currentTarget) handleCancel();
     }}
   >
     <div
@@ -217,7 +249,7 @@
         </div>
         <button
           type="button"
-          onclick={() => campaignStore.closeEdgeEditor()}
+          onclick={handleCancel}
           class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 flex items-center justify-center transition cursor-pointer"
           title="Fechar (Esc)"
         >
@@ -253,17 +285,21 @@
         <!-- Custom Style Section (Color & Icon Picker) -->
         {#if relationType === 'custom'}
           <div class="mt-3 space-y-3 p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800 animate-in fade-in duration-150">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-semibold text-zinc-200">Personalização da Conexão</span>
-              <div class="flex items-center gap-2">
-                <span class="text-[11px] text-zinc-400">Cor da Linha:</span>
-                <input
-                  type="color"
-                  bind:value={customColor}
-                  class="w-6 h-6 rounded cursor-pointer border border-zinc-700 bg-transparent p-0"
-                />
-              </div>
-            </div>
+            <ColorPicker
+              bind:value={customColor}
+              label="Cor da Linha da Conexão"
+              oninput={handleEdgeColorLiveSync}
+              onchange={handleEdgeColorLiveSync}
+            />
+
+            <ColorPicker
+              bind:value={textColor}
+              label="Cor do Texto do Rótulo (Opcional)"
+              allowEmpty={true}
+              emptyLabel="Herdar da Linha"
+              oninput={handleEdgeTextColorLiveSync}
+              onchange={handleEdgeTextColorLiveSync}
+            />
 
             <!-- Icon Picker -->
             <div>
@@ -406,7 +442,7 @@
         <div class="flex items-center gap-2">
           <button
             type="button"
-            onclick={() => campaignStore.closeEdgeEditor()}
+            onclick={handleCancel}
             class="px-4 py-2 rounded-lg text-xs text-zinc-400 hover:bg-zinc-800 transition cursor-pointer"
           >
             Cancelar

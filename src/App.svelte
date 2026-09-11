@@ -47,7 +47,9 @@
   <!-- Strict Web / Browser Player-Only Client Mode (Requirement R2) -->
   <PlayerVttView />
 {:else if appState.currentView === 'menu'}
-  <MainMenu />
+  <div class="h-screen w-screen overflow-hidden" style="zoom: var(--ui-scale, 1);">
+    <MainMenu />
+  </div>
 {:else}
   <div class="h-screen w-screen flex flex-col bg-[#0b0d11] text-zinc-100 overflow-hidden font-sans">
     <!-- Top App Bar -->
@@ -72,7 +74,10 @@
       </main>
 
       <!-- Right Sidebar (Session Log, Clocks, Lore, Ordo, Assistant) -->
-      <aside class="w-80 border-l border-zinc-800/80 bg-zinc-950 flex flex-col justify-between overflow-y-auto z-20 select-none">
+      <aside
+        class="w-80 border-l border-zinc-800/80 bg-zinc-950 flex flex-col justify-between overflow-y-auto z-20 select-none flex-shrink-0"
+        style="zoom: var(--ui-scale, 1);"
+      >
         <div class="flex flex-col flex-1 min-h-0">
           <!-- Sidebar Section Tabs -->
           <div class="flex items-center border-b border-zinc-800/80 bg-zinc-950 px-2 pt-2 gap-0.5 text-xs">
@@ -156,7 +161,9 @@
     </div>
 
     <!-- Bottom Session Timeline -->
-    <BottomTimeline />
+    <div style="zoom: var(--ui-scale, 1); flex-shrink: 0;">
+      <BottomTimeline />
+    </div>
   </div>
 
   <!-- Settings Modal when requested -->
@@ -175,4 +182,6 @@
 {/if}
 
 <!-- Floating Audio & Ambience Player Widget (Global for Main Menu and Campaign Views - US 153) -->
-<AudioPlayerWidget />
+<div style="zoom: var(--ui-scale, 1);">
+  <AudioPlayerWidget />
+</div>

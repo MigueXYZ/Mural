@@ -1,6 +1,7 @@
 <!-- File: src/lib/components/canvas/EditEntityModal.svelte -->
 <script lang="ts">
   import { campaignStore } from '../../stores/campaignStore.svelte';
+  import ColorPicker from '../ui/ColorPicker.svelte';
   import type { EntityType, EncounterTable, AttachedNote, DiceType } from '../../types';
   import { ICON_OPTIONS, getEntityIcon } from '../../utils/icons';
   import { audioEngine } from '../../services/audio/audioEngine.svelte';
@@ -88,6 +89,7 @@
   let tags = $state<string[]>([]);
   let tagInput = $state('');
   let color = $state('#d4a359');
+  let textColor = $state('');
   let selectedIcon = $state('user');
   let audioPlaylistId = $state('');
 
@@ -136,6 +138,7 @@
       tags = Array.isArray(node.tags) ? [...node.tags] : [];
       tagInput = '';
       color = node.colorTheme || node.color || '#d4a359';
+      textColor = node.textColor || '';
       selectedIcon = node.icon || 'user';
       audioPlaylistId = node.audioPlaylistId || '';
       tables = JSON.parse(JSON.stringify(node.tables || []));
@@ -279,6 +282,32 @@
     }, 10);
   }
 
+  function handleColorLiveSync(newColor: string) {
+    color = newColor;
+    if (node?.id) {
+      campaignStore.updateNodeDataLive(node.id, { color: newColor, colorTheme: newColor });
+    }
+  }
+
+  function handleTextColorLiveSync(newTextColor: string) {
+    textColor = newTextColor;
+    if (node?.id) {
+      campaignStore.updateNodeDataLive(node.id, { textColor: newTextColor || undefined });
+    }
+  }
+
+  function handleCancel() {
+    if (node?.id) {
+      campaignStore.updateNodeDataLive(node.id, {
+        color: node.colorTheme || node.color || '#d4a359',
+        colorTheme: node.colorTheme || node.color || '#d4a359',
+        textColor: node.textColor,
+      });
+    }
+    isFullScreen = false;
+    campaignStore.closeNodeEditor();
+  }
+
   function handleSave() {
     if (node) {
       campaignStore.updateNodeData(node.id, {
@@ -291,11 +320,13 @@
         tags,
         color,
         colorTheme: color,
+        textColor: textColor.trim() || undefined,
         icon: selectedIcon,
         tables,
         notes: attachedNotes,
         audioPlaylistId: audioPlaylistId || undefined,
       });
+      isFullScreen = false;
       campaignStore.closeNodeEditor();
     }
   }
@@ -305,7 +336,18 @@
       campaignStore.deleteNode(node.id);
     }
   }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (!node) return;
+    if (e.key === 'Escape') {
+      handleCancel();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      handleSave();
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeyDown} />
 
 {#snippet editorContent()}
   <!-- Top Metadata Row -->
@@ -886,30 +928,22 @@
       <p class="text-[11px] text-zinc-400">Personaliza o aspeto visual e a trilha sonora dedicada</p>
     </div>
 
-    <!-- Color Picker -->
-    <div class="space-y-2">
-      <span class="block text-zinc-400 font-medium text-xs">Paleta de Cores do Nó</span>
-      <div class="flex items-center gap-2 flex-wrap">
-        {#each COLOR_PALETTE as preset}
-          <button
-            type="button"
-            onclick={() => (color = preset.hex)}
-            class="w-6 h-6 rounded-full border-2 transition-transform cursor-pointer {color.toLowerCase() ===
-            preset.hex.toLowerCase()
-              ? 'scale-125 border-zinc-100 ring-2 ring-amber-500/50 shadow-md'
-              : 'border-transparent hover:scale-110 opacity-70 hover:opacity-100'}"
-            style="background-color: {preset.hex};"
-            title={preset.name}
-          ></button>
-        {/each}
-        <input
-          type="color"
-          bind:value={color}
-          class="w-6 h-6 rounded-full border border-zinc-700 bg-transparent cursor-pointer"
-          title="Cor personalizada"
-        />
-      </div>
-    </div>
+    <!-- Color Pickers (US R3 & R6) -->
+    <ColorPicker
+      bind:value={color}
+      label="Cor de Destaque / Tema do Nó"
+      oninput={handleColorLiveSync}
+      onchange={handleColorLiveSync}
+    />
+
+    <ColorPicker
+      bind:value={textColor}
+      label="Cor do Texto (Título & Rótulos)"
+      allowEmpty={true}
+      emptyLabel="Padrão / Herdado"
+      oninput={handleTextColorLiveSync}
+      onchange={handleTextColorLiveSync}
+    />
 
     <!-- Icon Grid Selector -->
     <div class="space-y-2">
@@ -1046,8 +1080,9 @@
           <!-- Close Button -->
           <button
             type="button"
-            onclick={() => campaignStore.closeNodeEditor()}
+            onclick={handleCancel}
             class="p-2 rounded-xl text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition cursor-pointer"
+            title="Fechar (Esc)"
           >
             <X class="w-4 h-4" />
           </button>
@@ -1139,7 +1174,7 @@
 
         <div class="flex items-center gap-2">
           <button
-            onclick={() => campaignStore.closeNodeEditor()}
+            onclick={handleCancel}
             class="px-4 py-1.5 rounded-xl text-xs text-zinc-400 hover:bg-zinc-800 transition cursor-pointer"
           >
             Cancelar
@@ -1161,7 +1196,7 @@
     <!-- ========================================================================= -->
     <div
       class="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4"
-      onclick={(e) => { if (e.target === e.currentTarget) campaignStore.closeNodeEditor(); }}
+      onclick={(e) => { if (e.target === e.currentTarget) handleCancel(); }}
       role="dialog"
       aria-modal="true"
       tabindex="-1"
@@ -1196,8 +1231,9 @@
 
             <button
               type="button"
-              onclick={() => campaignStore.closeNodeEditor()}
+              onclick={handleCancel}
               class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 flex items-center justify-center transition cursor-pointer"
+              title="Fechar (Esc)"
             >
               <X class="w-4 h-4" />
             </button>
@@ -1275,7 +1311,7 @@
 
           <div class="flex items-center gap-2">
             <button
-              onclick={() => campaignStore.closeNodeEditor()}
+              onclick={handleCancel}
               class="px-4 py-1.5 rounded-xl text-xs text-zinc-400 hover:bg-zinc-800 transition cursor-pointer"
             >
               Cancelar
